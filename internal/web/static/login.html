@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Webshare Proxy — Sign in</title>
+  <link rel="stylesheet" href="/assets/style.css" />
+</head>
+<body class="login-page">
+  <main class="login-card">
+    <h1>Webshare Proxy</h1>
+    <p class="muted">Admin panel</p>
+    <form id="login-form" autocomplete="off">
+      <label for="password">Password</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" autofocus required />
+      <button type="submit" id="submit-btn">Sign in</button>
+      <p id="error" class="error" hidden></p>
+    </form>
+  </main>
+  <script>
+    const form = document.getElementById('login-form');
+    const errEl = document.getElementById('error');
+    const btn = document.getElementById('submit-btn');
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      errEl.hidden = true;
+      btn.disabled = true;
+      btn.textContent = 'Signing in…';
+      try {
+        const r = await fetch('/web/api/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password: document.getElementById('password').value }),
+        });
+        if (r.ok) {
+          location.href = '/app';
+          return;
+        }
+        const data = await r.json().catch(() => ({}));
+        errEl.textContent = data.error || ('HTTP ' + r.status);
+        errEl.hidden = false;
+      } catch (err) {
+        errEl.textContent = String(err);
+        errEl.hidden = false;
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      }
+    });
+  </script>
+</body>
+</html>

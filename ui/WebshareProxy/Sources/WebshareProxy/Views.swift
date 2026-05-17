@@ -1,0 +1,448 @@
+// Views.swift — Main window with two tabs (Proxy Sources / Users & Rules)
+// plus the Add API Key and Add User modals.
+
+import SwiftUI
+
+struct MainWindow: View {
+    @EnvironmentObject var state: AppState
+    @State private var tab: Tab = .sources
+
+    enum Tab: String, CaseIterable { case sources = "Proxy Sources"; case users = "Users & Rules" }
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Picker("", selection: $tab) {
+                ForEach(Tab.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .padding(.horizontal, 12).padding(.vertical, 8)
+
+            Divider()
+
+            Group {
+                switch tab {
+                case .sources: ProxySourcesView()
+                case .users: UsersRulesView()
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .frame(minWidth: 720, minHeight: 480)
+        .task { await state.refreshAll() }
+    }
+}
+
+// MARK: - Proxy Sources tab
+
+struct ProxySourcesView: View {
+    @EnvironmentObject var state: AppState
+    @State private var showAddKey = false
+    @State private var deleteConflict: [ReferencingUser]? = nil
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                systemSection
+                Divider()
+                webshareSection
+            }
+            .padding(16)
+        }
+        .sheet(isPresented: $showAddKey) { AddAPIKeyModal().environmentObject(state) }
+        .alert("Key is in use", isPresented: .constant(deleteConflict != nil)) {
+            Button("OK") { deleteConflict = nil }
+        } message: {
+            if let conflict = deleteConflict {
+                Text(conflict.map { "• \($0.username) → \($0.displayName)" }.joined(separator: "\n"))
+            }
+        }
+    }
+
+    private var systemSection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Text("System").font(.headline)
+                proxyStatusBadge
+                Spacer()
+                proxyToggleButton
+            }
+            HStack(spacing: 16) {
+                HStack {
+                    Text("Listen addr:").font(.subheadline)
+                    Picker("", selection: sharedBind) {
+                        Text("127.0.0.1").tag("127.0.0.1")
+                        Text("0.0.0.0").tag("0.0.0.0")
+                        Text("[::1]").tag("[::1]")
+                    }
+                    .frame(width: 120).labelsHidden()
+                }
+                HStack {
+                    Text("SOCKS5:").font(.subheadline)
+                    TextField("Port", value: $state.settings.socks5ListenerPort, format: .number.grouping(.never))
+                        .frame(width: 70)
+                }
+                HStack {
+                    Text("HTTP:").font(.subheadline)
+                    TextField("Port", value: $state.settings.httpListenerPort, format: .number.grouping(.never))
+                        .frame(width: 70)
+                }
+                HStack {
+                    Text("Sync (min):").font(.subheadline)
+                    TextField("", value: $state.settings.syncIntervalMinutes, format: .number.grouping(.never))
+                        .frame(width: 60)
+                }
+                Button("Apply") {
+                    Task { await state.applySettings(state.settings) }
+                }
+            }
+            if let err = state.listenerError {
+                Text(err)
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                    .lineLimit(2)
+            }
+        }
+    }
+
+    private var proxyStatusBadge: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(state.proxyRunning ? Color.green : Color.gray)
+                .frame(width: 8, height: 8)
+            Text(state.proxyRunning ? "Running" : "Stopped")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var proxyToggleButton: some View {
+        Button(state.proxyRunning ? "Stop Proxy" : "Start Proxy") {
+            Task {
+                if state.proxyRunning {
+                    await state.stopProxy()
+                } else {
+                    await state.startProxy()
+                }
+            }
+        }
+    }
+
+    // Single bind Picker drives both HTTP and SOCKS5 listeners. They are
+    // distinct fields in the model so the daemon stays flexible, but in the
+    // UI we expose one knob — the common case is "loopback for all" or
+    // "0.0.0.0 for all" and split binds are a power-user concern.
+    private var sharedBind: Binding<String> {
+        Binding(
+            get: { state.settings.httpListenerBind },
+            set: { newValue in
+                state.settings.httpListenerBind = newValue
+                state.settings.socks5ListenerBind = newValue
+            }
+        )
+    }
+
+    private var webshareSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Webshare").font(.headline)
+                Spacer()
+                Button(action: { showAddKey = true }) { Image(systemName: "plus.circle") }
+                    .buttonStyle(.borderless)
+                Button(action: { Task { await state.refreshAll() } }) { Image(systemName: "arrow.clockwise") }
+                    .buttonStyle(.borderless)
+            }
+            if state.keys.isEmpty {
+                Text("No API keys configured. Click + to add one.")
+                    .foregroundStyle(.secondary).font(.subheadline)
+            } else {
+                ForEach(state.keys) { key in keyCard(key) }
+            }
+        }
+    }
+
+    private func keyCard(_ key: ApiKey) -> some View {
+        let owned = state.upstreams.filter { $0.sourceApiKeyId == key.id }
+        return VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Text(key.label).font(.headline)
+                Spacer()
+                if !key.lastSyncError.isEmpty {
+                    Image(systemName: "circle.fill").foregroundStyle(.red).help(key.lastSyncError)
+                }
+                if let t = key.lastSyncedAt {
+                    Text(t.formatted(.relative(presentation: .numeric))).font(.caption).foregroundStyle(.secondary)
+                }
+                Button(action: { Task { try? await state.api.syncKey(id: key.id); await state.refreshAll() } }) {
+                    Image(systemName: "arrow.clockwise")
+                }.buttonStyle(.borderless)
+                Button(action: { Task { await deleteKey(id: key.id) } }) { Image(systemName: "trash") }
+                    .buttonStyle(.borderless).foregroundStyle(.red)
+            }
+            if owned.isEmpty {
+                Text("No upstreams synced yet").font(.caption).foregroundStyle(.secondary)
+            } else {
+                upstreamList(owned)
+            }
+        }
+        .padding(8)
+        .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
+    }
+
+    // Inline upstream list — replaces the per-key Table so the row count is
+    // not bounded by a scrolling subview. The outer ScrollView remains the
+    // only scroller.
+    private func upstreamList(_ rows: [UpstreamProxy]) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("Country").frame(width: 60, alignment: .leading)
+                Text("Display Name").frame(maxWidth: .infinity, alignment: .leading)
+                Text("Node Address").frame(maxWidth: .infinity, alignment: .leading)
+                Text("Alive").frame(width: 50, alignment: .trailing)
+            }
+            .font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
+            Divider()
+            ForEach(rows) { up in
+                HStack(spacing: 8) {
+                    Text(up.countryCode).frame(width: 60, alignment: .leading)
+                    Text(up.displayName).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(up.host + ":" + String(up.port))
+                        .font(.system(.body, design: .monospaced))
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    Image(systemName: up.alive ? "checkmark.circle.fill" : "xmark.circle.fill")
+                        .foregroundStyle(up.alive ? .green : .red)
+                        .frame(width: 50, alignment: .trailing)
+                }
+                .padding(.vertical, 2)
+            }
+        }
+    }
+
+    private func deleteKey(id: Int64) async {
+        do {
+            try await state.api.deleteKey(id: id)
+            await state.refreshAll()
+        } catch let APIError.keyInUse(refs) {
+            deleteConflict = refs
+        } catch {
+            // ignore — UI shows nothing for transient errors here
+        }
+    }
+}
+
+// MARK: - Users & Rules tab
+
+struct UsersRulesView: View {
+    @EnvironmentObject var state: AppState
+    @State private var showAddUser = false
+    @State private var revealedPasswords: [String: String] = [:]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Users").font(.headline)
+                Text("Drag to reorder — top 3 appear in the menubar").font(.caption).foregroundStyle(.secondary)
+                Spacer()
+                Button(action: { showAddUser = true }) { Image(systemName: "plus.circle") }
+                    .buttonStyle(.borderless)
+            }.padding(.horizontal, 16).padding(.top, 12)
+
+            HStack(spacing: 8) {
+                Text("Username").frame(width: 140, alignment: .leading)
+                Text("Mapped Proxy").frame(width: 230, alignment: .leading)
+                Text("Password").frame(width: 160, alignment: .leading)
+                Text("Status").frame(width: 60, alignment: .leading)
+                Spacer()
+            }
+            .font(.caption).foregroundStyle(.secondary)
+            .padding(.horizontal, 16)
+
+            List {
+                ForEach(state.users) { user in
+                    userRow(user)
+                }
+                .onMove(perform: moveUsers)
+            }
+            .listStyle(.plain)
+            .frame(maxHeight: .infinity)
+        }
+        .sheet(isPresented: $showAddUser) { AddUserModal().environmentObject(state) }
+    }
+
+    private func userRow(_ user: LocalUser) -> some View {
+        HStack(spacing: 8) {
+            Text(user.username).frame(width: 140, alignment: .leading)
+            Picker("", selection: bindingForMapping(user)) {
+                Text("— (unmapped)").tag(Optional<String>.none)
+                ForEach(state.upstreams) { u in
+                    Text(u.displayName).tag(Optional(u.id))
+                }
+            }
+            .labelsHidden()
+            .frame(width: 230, alignment: .leading)
+            HStack {
+                if let p = revealedPasswords[user.username] {
+                    Text(p).font(.system(.caption, design: .monospaced))
+                }
+                Button(action: { Task { await peek(user.username) } }) {
+                    Image(systemName: revealedPasswords[user.username] == nil ? "eye" : "eye.slash")
+                }.buttonStyle(.borderless)
+            }.frame(width: 160, alignment: .leading)
+            if user.broken {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.red)
+                    .help("Mapping broken — upstream missing or stale")
+                    .frame(width: 60, alignment: .leading)
+            } else {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                    .frame(width: 60, alignment: .leading)
+            }
+            Spacer()
+            Button(action: { Task { try? await state.api.deleteUser(username: user.username); await state.refreshAll() } }) {
+                Image(systemName: "trash")
+            }.buttonStyle(.borderless).foregroundStyle(.red)
+        }
+    }
+
+    private func moveUsers(from source: IndexSet, to destination: Int) {
+        var reordered = state.users
+        reordered.move(fromOffsets: source, toOffset: destination)
+        state.users = reordered
+        let usernames = reordered.map(\.username)
+        Task {
+            try? await state.api.reorderUsers(usernames)
+            await state.refreshAll()
+        }
+    }
+
+    private func bindingForMapping(_ user: LocalUser) -> Binding<String?> {
+        Binding(
+            get: { user.upstreamProxyId },
+            set: { newID in
+                Task {
+                    try? await state.api.setUserMapping(username: user.username, upstreamId: newID)
+                    await state.refreshAll()
+                }
+            }
+        )
+    }
+
+    private func peek(_ username: String) async {
+        if revealedPasswords[username] != nil {
+            revealedPasswords[username] = nil
+            return
+        }
+        if let p = try? await state.api.peekPassword(username: username) {
+            revealedPasswords[username] = p
+            // Auto-hide after 5s.
+            Task { @MainActor in
+                try? await Task.sleep(nanoseconds: 5_000_000_000)
+                revealedPasswords[username] = nil
+            }
+        }
+    }
+}
+
+// MARK: - Modals
+
+struct AddAPIKeyModal: View {
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var state: AppState
+    @State private var label = ""
+    @State private var key = ""
+    @State private var errorText: String?
+    @State private var submitting = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Add API Key").font(.headline)
+            TextField("Label (e.g. US Premium)", text: $label)
+            SecureField("API Key (sk_...)", text: $key)
+            if let errorText {
+                Text(errorText).foregroundStyle(.red).font(.caption)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button(submitting ? "Adding…" : "Add") {
+                    submit()
+                }
+                .keyboardShortcut(.return)
+                .disabled(label.isEmpty || key.isEmpty || submitting)
+            }
+        }.padding(20).frame(width: 360)
+    }
+
+    private func submit() {
+        submitting = true
+        errorText = nil
+        Task {
+            do {
+                try await state.api.addKey(label: label, apiKey: key)
+                await state.refreshAll()
+                dismiss()
+            } catch {
+                errorText = error.localizedDescription
+                submitting = false
+            }
+        }
+    }
+}
+
+struct AddUserModal: View {
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var state: AppState
+    @State private var username = ""
+    @State private var password = ""
+    @State private var initialUpstreamID: String? = nil
+    @State private var errorText: String?
+    @State private var submitting = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Add User").font(.headline)
+            TextField("Username", text: $username)
+            SecureField("Password", text: $password)
+            HStack {
+                Text("Proxy:").font(.subheadline)
+                Picker("", selection: $initialUpstreamID) {
+                    Text("— (no mapping)").tag(Optional<String>.none)
+                    ForEach(state.upstreams) { up in
+                        Text(up.displayName).tag(Optional(up.id))
+                    }
+                }
+                .labelsHidden()
+            }
+            if let errorText {
+                Text(errorText).foregroundStyle(.red).font(.caption)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button(submitting ? "Adding…" : "Add") {
+                    submit()
+                }
+                .keyboardShortcut(.return)
+                .disabled(username.isEmpty || password.isEmpty || submitting)
+            }
+        }.padding(20).frame(width: 380)
+    }
+
+    private func submit() {
+        submitting = true
+        errorText = nil
+        Task {
+            do {
+                try await state.api.addUser(username: username, password: password)
+                if let upstreamID = initialUpstreamID {
+                    try await state.api.setUserMapping(username: username, upstreamId: upstreamID)
+                }
+                await state.refreshAll()
+                dismiss()
+            } catch {
+                errorText = error.localizedDescription
+                submitting = false
+            }
+        }
+    }
+}

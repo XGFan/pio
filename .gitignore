@@ -1,0 +1,39 @@
+# Build artifacts
+/webshare-proxyd
+/cmd/webshare-proxyd/webshare-proxyd
+/build/
+/dist/
+*.test
+*.out
+coverage.txt
+
+# Swift / SwiftPM build cache (per-user, gigabytes)
+ui/WebshareProxy/.build/
+ui/WebshareProxy/Package.resolved
+
+# Local data dirs (in case tests or dev runs drop them in-tree)
+/data/
+/tmp/
+*.db
+*.db-wal
+*.db-shm
+master.key
+master.salt
+api.port
+
+# OMC and tooling state (per-user, not source)
+.omc/state/
+.omc/sessions/
+.omc/project-memory.json
+.omc/notepad.md
+ui/WebshareProxy/.omc/
+.playwright-cli/
+
+# Per-user MCP config (may contain API keys)
+.mcp.json
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
