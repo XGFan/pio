@@ -26,6 +26,7 @@ api.port
 .omc/sessions/
 .omc/project-memory.json
 .omc/notepad.md
+.omc/webshare-web-password.txt
 ui/WebshareProxy/.omc/
 .playwright-cli/
 
