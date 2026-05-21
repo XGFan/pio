@@ -273,7 +273,7 @@ function renderUsersTable() {
       el('th', {}, 'Mapped Proxy'),
       el('th', {}, 'Password'),
       el('th', {}, 'Status'),
-      el('th', { class: 'actions' }, ''),
+      el('th', { class: 'actions' }, 'Actions'),
     )),
     tbody,
   );
