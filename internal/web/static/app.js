@@ -13,6 +13,7 @@ const state = {
   })(),
   keys: [],
   upstreams: [],
+  manualProxies: [],
   users: [],
   settings: null,
   proxy: { running: false, http_addr: '', socks_addr: '' },
@@ -55,15 +56,17 @@ const apiDELETE = (p) => api('DELETE', p);
 
 async function refreshAll() {
   try {
-    const [keys, upstreams, users, settings, proxy] = await Promise.all([
+    const [keys, upstreams, manualProxies, users, settings, proxy] = await Promise.all([
       apiGET('/api/v1/keys').catch(() => []),
       apiGET('/api/v1/upstreams').catch(() => []),
+      apiGET('/api/v1/manual-proxies').catch(() => []),
       apiGET('/api/v1/users').catch(() => []),
       apiGET('/api/v1/settings').catch(() => null),
       apiGET('/api/v1/proxy/status').catch(() => ({ running: false })),
     ]);
     state.keys = keys || [];
     state.upstreams = upstreams || [];
+    state.manualProxies = manualProxies || [];
     state.users = users || [];
     if (settings) state.settings = settings;
     state.proxy = proxy || { running: false };
@@ -91,6 +94,145 @@ function renderSources() {
   $app.innerHTML = '';
   $app.appendChild(systemSection());
   $app.appendChild(webshareSection());
+  $app.appendChild(manualProxiesSection());
+}
+
+function manualProxiesSection() {
+  return el('section', {},
+    el('h2', {},
+      'Manual Proxies',
+      el('span', { style: 'flex:1' }),
+      el('button', { class: 'icon', title: 'Add manual proxy', onclick: () => openManualProxyModal() }, '+'),
+    ),
+    state.manualProxies.length === 0
+      ? el('div', { class: 'card empty' }, 'No manual proxies yet. Click + to add one.')
+      : el('div', { class: 'card', style: 'padding:0' }, renderManualProxiesTable()),
+  );
+}
+
+function renderManualProxiesTable() {
+  const tbody = el('tbody', {}, ...state.manualProxies.map((p) =>
+    el('tr', {},
+      el('td', {}, p.manual_name || p.display_name),
+      el('td', { class: 'mono' }, `${p.host}:${p.port}`),
+      el('td', {}, el('span', { class: 'proto-pill' }, (p.protocol || '').toUpperCase())),
+      el('td', {}, p.username || el('span', { class: 'muted' }, '—')),
+      el('td', { class: 'actions' },
+        el('div', { class: 'action-group' },
+          el('button', { class: 'icon', title: 'Edit', onclick: () => openManualProxyModal(p) }, '✎'),
+          el('button', { class: 'icon danger-icon', title: 'Delete', onclick: () => deleteManualProxy(p) }, '✕'),
+        ),
+      ),
+    ),
+  ));
+  return el('table', { class: 'user-table' },
+    el('thead', {}, el('tr', {},
+      el('th', {}, 'Name'),
+      el('th', {}, 'Host:Port'),
+      el('th', {}, 'Protocol'),
+      el('th', {}, 'Username'),
+      el('th', { class: 'actions' }, 'Actions'),
+    )),
+    tbody,
+  );
+}
+
+async function deleteManualProxy(p) {
+  const name = p.manual_name || p.display_name;
+  if (!confirm(`Delete manual proxy "${name}"?`)) return;
+  try {
+    await apiDELETE(`/api/v1/manual-proxies/${encodeURIComponent(p.id)}`);
+  } catch (e) {
+    if (e.status === 409 && e.data && e.data.referencing_users) {
+      const lines = e.data.referencing_users.map((r) => `• ${r.username}`).join('\n');
+      alert(`"${name}" is in use by:\n${lines}\nRemap or delete those users first.`);
+    } else {
+      alert('Delete failed: ' + e.message);
+    }
+  }
+  await refreshAll();
+}
+
+// openManualProxyModal handles both add (existing=undefined) and edit modes.
+function openManualProxyModal(existing) {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = '';
+  const isEdit = !!existing;
+
+  const nameInput = inputEl({ autofocus: '', value: isEdit ? (existing.manual_name || existing.display_name) : '' });
+  const hostInput = inputEl({ value: isEdit ? existing.host : '' });
+  const portInput = inputEl({ type: 'number', value: isEdit ? existing.port : '8080', style: 'width:90px' });
+  const protocolSelect = selectEl({}, [
+    { value: 'http', label: 'HTTP' },
+    { value: 'https', label: 'HTTPS' },
+    { value: 'socks5', label: 'SOCKS5' },
+  ], isEdit ? existing.protocol : 'http');
+  const usernameInput = inputEl({ value: isEdit ? (existing.username || '') : '' });
+  const passwordInput = inputEl({
+    type: 'password',
+    placeholder: isEdit ? 'leave blank to keep current password' : '',
+  });
+  const errEl = el('div', { class: 'banner error', style: 'display:none' });
+  const submitBtn = el('button', { class: 'primary' }, isEdit ? 'Save' : 'Add');
+
+  const close = () => { root.innerHTML = ''; };
+  const showErr = (msg) => { errEl.textContent = msg; errEl.style.display = ''; };
+
+  const submit = async () => {
+    const payload = {
+      name: nameInput.value.trim(),
+      host: hostInput.value.trim(),
+      port: parseInt(portInput.value || '0', 10),
+      protocol: protocolSelect.value,
+      username: usernameInput.value,
+      password: passwordInput.value,
+    };
+    if (!payload.name) return showErr('Name is required');
+    if (!payload.host) return showErr('Host is required');
+    if (!payload.port) return showErr('Port is required');
+
+    submitBtn.disabled = true; submitBtn.textContent = isEdit ? 'Saving…' : 'Adding…';
+    errEl.style.display = 'none';
+    try {
+      if (isEdit) {
+        await apiPATCH(`/api/v1/manual-proxies/${encodeURIComponent(existing.id)}`, payload);
+      } else {
+        await apiPOST('/api/v1/manual-proxies', payload);
+      }
+      close();
+      await refreshAll();
+    } catch (e) {
+      if (e.status === 409 && e.data && e.data.error === 'manual_name_in_use') {
+        showErr(`Name "${payload.name}" is already used by another manual proxy.`);
+      } else {
+        showErr(e.message);
+      }
+      submitBtn.disabled = false;
+      submitBtn.textContent = isEdit ? 'Save' : 'Add';
+    }
+  };
+  submitBtn.addEventListener('click', submit);
+
+  root.appendChild(
+    el('div', { class: 'modal-backdrop', onclick: (e) => { if (e.target.classList.contains('modal-backdrop')) close(); } },
+      el('div', { class: 'modal' },
+        el('h3', {}, isEdit ? 'Edit manual proxy' : 'Add manual proxy'),
+        el('div', { class: 'field' }, el('label', {}, 'Name (unique)'), nameInput),
+        el('div', { class: 'field' }, el('label', {}, 'Host'), hostInput),
+        el('div', { class: 'row' },
+          el('div', { class: 'field' }, el('label', {}, 'Port'), portInput),
+          el('div', { class: 'field' }, el('label', {}, 'Protocol'), protocolSelect),
+        ),
+        el('div', { class: 'field' }, el('label', {}, 'Username (optional)'), usernameInput),
+        el('div', { class: 'field' }, el('label', {}, 'Password (optional)'), passwordInput),
+        errEl,
+        el('div', { class: 'buttons' },
+          el('button', { onclick: close }, 'Cancel'),
+          submitBtn,
+        ),
+      ),
+    ),
+  );
 }
 
 function systemSection() {
@@ -219,7 +361,10 @@ function renderUsers() {
 
 function renderUsersTable() {
   const upstreamOptions = [{ value: '', label: '— (unmapped)' }]
-    .concat(state.upstreams.map((u) => ({ value: u.id, label: u.display_name })));
+    .concat(state.upstreams.map((u) => ({
+      value: u.id,
+      label: u.source === 'manual' ? `${u.display_name} (manual)` : u.display_name,
+    })));
 
   const tbody = el('tbody', {}, ...state.users.map((user, idx) => {
     const revealed = state.revealedPasswords[user.username];
@@ -436,7 +581,10 @@ function openAddUserModal() {
   const usernameInput = inputEl({ autofocus: '' });
   const passwordInput = inputEl({ type: 'password' });
   const upstreamOptions = [{ value: '', label: '— (no mapping)' }]
-    .concat(state.upstreams.map((u) => ({ value: u.id, label: u.display_name })));
+    .concat(state.upstreams.map((u) => ({
+      value: u.id,
+      label: u.source === 'manual' ? `${u.display_name} (manual)` : u.display_name,
+    })));
   const upstreamSelect = selectEl({}, upstreamOptions, '');
   const errEl = el('div', { class: 'banner error', style: 'display:none' });
   const submitBtn = el('button', { class: 'primary' }, 'Add');

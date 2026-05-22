@@ -193,3 +193,73 @@ type brokenInfo struct {
 	username      string
 	oldUpstreamID string
 }
+
+// RebuildForUpstreamChange rebuilds routing state after a manual upstream's
+// identity fields (host/port/protocol/username/password) were edited or it
+// was deleted. Unlike RebuildAfterSync (which only cycles CancelGroup on
+// Broken transitions), this helper rotates the CG for every user whose
+// UpstreamID == changedID — so in-flight bridges to the now-stale upstream
+// definition are torn down within ~1 TCP RTT.
+//
+// onUpstreamChanged is invoked once per (username, oldUpstreamID) whose
+// CancelGroup got rotated; listeners hook this to walk their connection
+// registries.
+func (c *Core) RebuildForUpstreamChange(ctx context.Context, changedID string, onUpstreamChanged func(username, oldUpstreamID string)) error {
+	c.mappingChangeMu.Lock()
+	defer c.mappingChangeMu.Unlock()
+
+	cur := c.Snapshot()
+	upstreams, err := repo.ListAllResolvedUpstreams(ctx, c.db, c.masterKey)
+	if err != nil {
+		return fmt.Errorf("list upstreams: %w", err)
+	}
+
+	newUsers := make(map[string]*ResolvedUser, len(cur.Users))
+	var rotated []brokenInfo
+	for username, ru := range cur.Users {
+		nru := &ResolvedUser{
+			Username:      ru.Username,
+			PasswordPlain: ru.PasswordPlain,
+			UpstreamID:    ru.UpstreamID,
+			CancelGroup:   ru.CancelGroup, // default: keep
+		}
+		if ru.UpstreamID != "" {
+			if up, ok := upstreams[ru.UpstreamID]; ok && up.Alive {
+				nru.Upstream = &up.UpstreamProxy
+				nru.UpstreamPwd = up.Password
+			} else {
+				nru.Broken = true
+			}
+		} else {
+			nru.Broken = true
+		}
+		// If this user maps to the changed upstream, rotate the CG so any
+		// active bridges using the old upstream tuple get torn down even
+		// when the row is still alive (the common edit-in-place path).
+		if ru.UpstreamID == changedID {
+			nru.CancelGroup = NewCancelGroup()
+			rotated = append(rotated, brokenInfo{username: username, oldUpstreamID: ru.UpstreamID})
+		}
+		newUsers[username] = nru
+	}
+
+	next := &RoutingState{
+		Users:     newUsers,
+		Upstreams: upstreams,
+		Version:   cur.Version + 1,
+		BuiltAt:   time.Now().UTC(),
+	}
+	c.Swap(next)
+
+	// Cancel old CG outside locks; the listener callback closes the
+	// active connections registered under the old (user, upstream) tuple.
+	if onUpstreamChanged != nil {
+		for _, r := range rotated {
+			if oldRU, ok := cur.Users[r.username]; ok && oldRU.CancelGroup != nil {
+				oldRU.CancelGroup.Cancel()
+			}
+			onUpstreamChanged(r.username, r.oldUpstreamID)
+		}
+	}
+	return nil
+}

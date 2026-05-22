@@ -233,7 +233,7 @@ func (p *SOCKS5Proxy) handleConn(ctx context.Context, conn net.Conn) {
 		defer p.reg.Deregister(connID)
 	}
 
-	upConn, err := p.mgr.DialHTTPUpstream(connCtx, upstream, upstreamPwd, target)
+	upConn, err := p.mgr.DialUpstream(connCtx, upstream, upstreamPwd, target)
 	if err != nil {
 		writeReply(conn, repGeneralFailure)
 		_ = conn.Close()

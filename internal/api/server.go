@@ -21,6 +21,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/guofan/webshare-proxy/internal/auth"
 	"github.com/guofan/webshare-proxy/internal/crypto"
+	"github.com/guofan/webshare-proxy/internal/model"
 	"github.com/guofan/webshare-proxy/internal/registry"
 	"github.com/guofan/webshare-proxy/internal/repo"
 	"github.com/guofan/webshare-proxy/internal/routing"
@@ -142,6 +143,11 @@ func (s *Server) mountRoutes(r chi.Router) {
 
 	r.Get("/api/v1/upstreams", s.listUpstreams)
 	r.Patch("/api/v1/upstreams/{id}", s.patchUpstream)
+
+	r.Get("/api/v1/manual-proxies", s.listManualProxies)
+	r.Post("/api/v1/manual-proxies", s.addManualProxy)
+	r.Patch("/api/v1/manual-proxies/{id}", s.patchManualProxy)
+	r.Delete("/api/v1/manual-proxies/{id}", s.deleteManualProxy)
 
 	r.Get("/api/v1/users", s.listUsers)
 	r.Post("/api/v1/users", s.addUser)
@@ -268,17 +274,30 @@ func (s *Server) syncKey(w http.ResponseWriter, r *http.Request) {
 }
 
 type upstreamDTO struct {
-	ID             string    `json:"id"`
-	SourceApiKeyID int64     `json:"source_api_key_id"`
-	Host           string    `json:"host"`
-	Port           int       `json:"port"`
-	Protocol       string    `json:"protocol"`
-	DisplayName    string    `json:"display_name"`
-	CountryCode    string    `json:"country_code"`
-	CityName       string    `json:"city_name,omitempty"`
-	Alive          bool      `json:"alive"`
-	RecentlyFailing bool     `json:"recently_failing"`
-	LastSeenAt     time.Time `json:"last_seen_at"`
+	ID              string    `json:"id"`
+	Source          string    `json:"source"`
+	SourceApiKeyID  *int64    `json:"source_api_key_id"`
+	ManualName      string    `json:"manual_name,omitempty"`
+	Host            string    `json:"host"`
+	Port            int       `json:"port"`
+	Username        string    `json:"username,omitempty"`
+	Protocol        string    `json:"protocol"`
+	DisplayName     string    `json:"display_name"`
+	CountryCode     string    `json:"country_code"`
+	CityName        string    `json:"city_name,omitempty"`
+	Alive           bool      `json:"alive"`
+	RecentlyFailing bool      `json:"recently_failing"`
+	LastSeenAt      time.Time `json:"last_seen_at"`
+}
+
+func toUpstreamDTO(u model.UpstreamProxy) upstreamDTO {
+	return upstreamDTO{
+		ID: u.ID, Source: u.Source, SourceApiKeyID: u.SourceApiKeyID,
+		ManualName: u.ManualName, Host: u.Host, Port: u.Port, Username: u.Username,
+		Protocol: u.Protocol, DisplayName: u.DisplayName, CountryCode: u.CountryCode,
+		CityName: u.CityName, Alive: u.Alive, RecentlyFailing: u.RecentlyFailing,
+		LastSeenAt: u.LastSeenAt,
+	}
 }
 
 func (s *Server) listUpstreams(w http.ResponseWriter, r *http.Request) {
@@ -289,14 +308,135 @@ func (s *Server) listUpstreams(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]upstreamDTO, 0, len(rows))
 	for _, u := range rows {
-		out = append(out, upstreamDTO{
-			ID: u.ID, SourceApiKeyID: u.SourceApiKeyID, Host: u.Host, Port: u.Port,
-			Protocol: u.Protocol, DisplayName: u.DisplayName, CountryCode: u.CountryCode,
-			CityName: u.CityName, Alive: u.Alive, RecentlyFailing: u.RecentlyFailing,
-			LastSeenAt: u.LastSeenAt,
-		})
+		out = append(out, toUpstreamDTO(u))
 	}
 	writeJSON(w, 200, out)
+}
+
+// manualProxyInput is the wire shape for POST/PATCH /api/v1/manual-proxies.
+// All fields are required on POST; PATCH treats empty Password as "keep".
+type manualProxyInput struct {
+	Name     string `json:"name"`
+	Host     string `json:"host"`
+	Port     int    `json:"port"`
+	Protocol string `json:"protocol"`
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+func (s *Server) listManualProxies(w http.ResponseWriter, r *http.Request) {
+	rows, err := repo.ListManualProxies(r.Context(), s.deps.DB)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	out := make([]upstreamDTO, 0, len(rows))
+	for _, u := range rows {
+		out = append(out, toUpstreamDTO(u))
+	}
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) addManualProxy(w http.ResponseWriter, r *http.Request) {
+	var in manualProxyInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, 400, "invalid JSON")
+		return
+	}
+	id, err := repo.InsertManualProxy(r.Context(), s.deps.DB, s.deps.MasterKey, repo.ManualProxyInput{
+		Name: in.Name, Host: in.Host, Port: in.Port, Protocol: in.Protocol,
+		Username: in.Username, Password: in.Password,
+	})
+	if err != nil {
+		if errors.Is(err, repo.ErrManualNameInUse) {
+			writeJSON(w, 409, map[string]string{"error": "manual_name_in_use"})
+			return
+		}
+		if errors.Is(err, repo.ErrInvalidManualProxy) {
+			writeErr(w, 400, err.Error())
+			return
+		}
+		writeErr(w, 500, err.Error())
+		return
+	}
+	// Rehydrate so the new upstream is immediately routable.
+	if err := s.deps.Core.RebuildAfterSync(r.Context(), func(u, oldUp string) {
+		s.deps.Registry.CloseByUserUpstream(u, oldUp)
+	}); err != nil {
+		writeErr(w, 500, "rebuild: "+err.Error())
+		return
+	}
+	s.deps.Hub.Broadcast("manual_proxy_added", map[string]any{"id": id})
+	writeJSON(w, 201, map[string]string{"id": id})
+}
+
+func (s *Server) patchManualProxy(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	var in manualProxyInput
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, 400, "invalid JSON")
+		return
+	}
+	err := repo.UpdateManualProxy(r.Context(), s.deps.DB, s.deps.MasterKey, id, repo.ManualProxyInput{
+		Name: in.Name, Host: in.Host, Port: in.Port, Protocol: in.Protocol,
+		Username: in.Username, Password: in.Password,
+	})
+	if err != nil {
+		if errors.Is(err, repo.ErrManualNameInUse) {
+			writeJSON(w, 409, map[string]string{"error": "manual_name_in_use"})
+			return
+		}
+		if errors.Is(err, repo.ErrInvalidManualProxy) {
+			writeErr(w, 400, err.Error())
+			return
+		}
+		if errors.Is(err, repo.ErrNotFound) {
+			writeErr(w, 404, "manual proxy not found")
+			return
+		}
+		writeErr(w, 500, err.Error())
+		return
+	}
+	// Edits to host/port/protocol/creds must be picked up by routing AND
+	// any in-flight bridges that captured the pre-edit upstream tuple must
+	// be torn down. RebuildAfterSync only rotates CancelGroups on Broken
+	// transitions, so use the dedicated upstream-change helper.
+	if err := s.deps.Core.RebuildForUpstreamChange(r.Context(), id, func(u, oldUp string) {
+		s.deps.Registry.CloseByUserUpstream(u, oldUp)
+	}); err != nil {
+		writeErr(w, 500, "rebuild: "+err.Error())
+		return
+	}
+	s.deps.Hub.Broadcast("manual_proxy_updated", map[string]any{"id": id})
+	writeJSON(w, 200, map[string]string{"id": id})
+}
+
+func (s *Server) deleteManualProxy(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := repo.DeleteManualProxy(r.Context(), s.deps.DB, id); err != nil {
+		var inUse *repo.ErrUpstreamInUse
+		if errors.As(err, &inUse) {
+			writeJSON(w, 409, map[string]any{
+				"error":             "upstream_in_use",
+				"referencing_users": inUse.ReferencingUsers,
+			})
+			return
+		}
+		if errors.Is(err, repo.ErrNotFound) {
+			writeErr(w, 404, "manual proxy not found")
+			return
+		}
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if err := s.deps.Core.RebuildAfterSync(r.Context(), func(u, oldUp string) {
+		s.deps.Registry.CloseByUserUpstream(u, oldUp)
+	}); err != nil {
+		writeErr(w, 500, "rebuild: "+err.Error())
+		return
+	}
+	s.deps.Hub.Broadcast("manual_proxy_deleted", map[string]any{"id": id})
+	writeJSON(w, 200, map[string]bool{"deleted": true})
 }
 
 func (s *Server) patchUpstream(w http.ResponseWriter, r *http.Request) {

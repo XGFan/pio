@@ -55,6 +55,8 @@ final class AppState: ObservableObject {
         async let s = (try? api.getSettings())
         async let p = try? api.proxyStatus()
         self.keys = await k
+        // listUpstreams already returns both webshare and manual rows; the
+        // manual subset is derived for the dedicated Manual Proxies section.
         self.upstreams = await u
         self.users = await usr
         if let s = await s { self.settings = s }
@@ -63,6 +65,10 @@ final class AppState: ObservableObject {
             self.proxyHTTPAddr = p.httpAddr ?? ""
             self.proxySocksAddr = p.socksAddr ?? ""
         }
+    }
+
+    var manualProxies: [UpstreamProxy] {
+        upstreams.filter { $0.isManual }
     }
 
     // Start the proxy listeners. Returns true on success; on failure the

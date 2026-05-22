@@ -38,6 +38,9 @@ struct ProxySourcesView: View {
     @EnvironmentObject var state: AppState
     @State private var showAddKey = false
     @State private var deleteConflict: [ReferencingUser]? = nil
+    @State private var manualDeleteConflict: [ReferencingUser]? = nil
+    @State private var manualEditing: UpstreamProxy? = nil
+    @State private var showAddManual = false
 
     var body: some View {
         ScrollView {
@@ -45,15 +48,31 @@ struct ProxySourcesView: View {
                 systemSection
                 Divider()
                 webshareSection
+                Divider()
+                manualProxiesSection
             }
             .padding(16)
         }
         .sheet(isPresented: $showAddKey) { AddAPIKeyModal().environmentObject(state) }
+        .sheet(isPresented: $showAddManual) {
+            ManualProxyEditor(existing: nil).environmentObject(state)
+        }
+        .sheet(item: $manualEditing) { mp in
+            ManualProxyEditor(existing: mp).environmentObject(state)
+        }
         .alert("Key is in use", isPresented: .constant(deleteConflict != nil)) {
             Button("OK") { deleteConflict = nil }
         } message: {
             if let conflict = deleteConflict {
                 Text(conflict.map { "• \($0.username) → \($0.displayName)" }.joined(separator: "\n"))
+            }
+        }
+        .alert("Manual proxy is in use", isPresented: .constant(manualDeleteConflict != nil)) {
+            Button("OK") { manualDeleteConflict = nil }
+        } message: {
+            if let conflict = manualDeleteConflict {
+                Text("Remap or delete these users first:\n" +
+                     conflict.map { "• \($0.username)" }.joined(separator: "\n"))
             }
         }
     }
@@ -227,6 +246,75 @@ struct ProxySourcesView: View {
             // ignore — UI shows nothing for transient errors here
         }
     }
+
+    // MARK: Manual proxies
+
+    private var manualProxiesSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Manual Proxies").font(.headline)
+                Spacer()
+                Button(action: { showAddManual = true }) { Image(systemName: "plus.circle") }
+                    .buttonStyle(.borderless)
+            }
+            if state.manualProxies.isEmpty {
+                Text("No manual proxies. Click + to add one.")
+                    .foregroundStyle(.secondary).font(.subheadline)
+            } else {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 8) {
+                        Text("Name").frame(width: 140, alignment: .leading)
+                        Text("Host:Port").frame(maxWidth: .infinity, alignment: .leading)
+                        Text("Protocol").frame(width: 70, alignment: .leading)
+                        Text("Username").frame(width: 120, alignment: .leading)
+                        Text("").frame(width: 60)
+                    }
+                    .font(.caption).foregroundStyle(.secondary).padding(.vertical, 4)
+                    Divider()
+                    ForEach(state.manualProxies) { mp in
+                        HStack(spacing: 8) {
+                            Text(mp.manualName ?? mp.displayName)
+                                .frame(width: 140, alignment: .leading)
+                            Text("\(mp.host):\(mp.port)")
+                                .font(.system(.body, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Text(mp.protocol_.uppercased())
+                                .font(.caption)
+                                .padding(.horizontal, 6).padding(.vertical, 2)
+                                .background(RoundedRectangle(cornerRadius: 4).fill(Color.secondary.opacity(0.15)))
+                                .frame(width: 70, alignment: .leading)
+                            Text(mp.username ?? "")
+                                .foregroundStyle((mp.username ?? "").isEmpty ? .secondary : .primary)
+                                .frame(width: 120, alignment: .leading)
+                            HStack(spacing: 4) {
+                                Button(action: { manualEditing = mp }) { Image(systemName: "pencil") }
+                                    .buttonStyle(.borderless)
+                                Button(action: { Task { await deleteManualProxy(mp) } }) {
+                                    Image(systemName: "trash")
+                                }
+                                .buttonStyle(.borderless).foregroundStyle(.red)
+                            }
+                            .frame(width: 60, alignment: .trailing)
+                        }
+                        .padding(.vertical, 2)
+                    }
+                }
+                .padding(8)
+                .background(RoundedRectangle(cornerRadius: 6).fill(Color.secondary.opacity(0.06)))
+            }
+        }
+    }
+
+    private func deleteManualProxy(_ mp: UpstreamProxy) async {
+        do {
+            try await state.api.deleteManualProxy(id: mp.id)
+            await state.refreshAll()
+        } catch let APIError.upstreamInUse(refs) {
+            manualDeleteConflict = refs
+        } catch {
+            // ignored
+        }
+    }
 }
 
 // MARK: - Users & Rules tab
@@ -274,7 +362,7 @@ struct UsersRulesView: View {
             Picker("", selection: bindingForMapping(user)) {
                 Text("— (unmapped)").tag(Optional<String>.none)
                 ForEach(state.upstreams) { u in
-                    Text(u.displayName).tag(Optional(u.id))
+                    Text(u.isManual ? "\(u.displayName) (manual)" : u.displayName).tag(Optional(u.id))
                 }
             }
             .labelsHidden()
@@ -408,7 +496,7 @@ struct AddUserModal: View {
                 Picker("", selection: $initialUpstreamID) {
                     Text("— (no mapping)").tag(Optional<String>.none)
                     ForEach(state.upstreams) { up in
-                        Text(up.displayName).tag(Optional(up.id))
+                        Text(up.isManual ? "\(up.displayName) (manual)" : up.displayName).tag(Optional(up.id))
                     }
                 }
                 .labelsHidden()
@@ -439,6 +527,98 @@ struct AddUserModal: View {
                 }
                 await state.refreshAll()
                 dismiss()
+            } catch {
+                errorText = error.localizedDescription
+                submitting = false
+            }
+        }
+    }
+}
+
+// ManualProxyEditor doubles as add + edit. `existing == nil` → add mode;
+// otherwise edit mode and the password field defaults to blank meaning
+// "leave existing password unchanged" (the server preserves the ciphertext
+// when password is empty).
+struct ManualProxyEditor: View {
+    @Environment(\.dismiss) var dismiss
+    @EnvironmentObject var state: AppState
+    let existing: UpstreamProxy?
+
+    @State private var name = ""
+    @State private var host = ""
+    @State private var port = "8080"
+    @State private var proto = "http"
+    @State private var username = ""
+    @State private var password = ""
+    @State private var errorText: String?
+    @State private var submitting = false
+
+    var isEdit: Bool { existing != nil }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(isEdit ? "Edit Manual Proxy" : "Add Manual Proxy").font(.headline)
+            TextField("Name (unique)", text: $name)
+            TextField("Host", text: $host)
+            HStack {
+                TextField("Port", text: $port).frame(width: 100)
+                Picker("Protocol", selection: $proto) {
+                    Text("HTTP").tag("http")
+                    Text("HTTPS").tag("https")
+                    Text("SOCKS5").tag("socks5")
+                }
+            }
+            TextField("Username (optional)", text: $username)
+            SecureField(isEdit ? "Password (leave blank to keep current)" : "Password (optional)", text: $password)
+            if let errorText {
+                Text(errorText).foregroundStyle(.red).font(.caption)
+            }
+            HStack {
+                Spacer()
+                Button("Cancel") { dismiss() }
+                Button(submitting ? "Saving…" : (isEdit ? "Save" : "Add")) { submit() }
+                    .keyboardShortcut(.return)
+                    .disabled(submitting || name.isEmpty || host.isEmpty || (Int(port) ?? 0) <= 0)
+            }
+        }
+        .padding(20)
+        .frame(width: 420)
+        .onAppear(perform: hydrateFromExisting)
+    }
+
+    private func hydrateFromExisting() {
+        guard let mp = existing else { return }
+        name = mp.manualName ?? mp.displayName
+        host = mp.host
+        port = String(mp.port)
+        proto = mp.protocol_
+        username = mp.username ?? ""
+        // password stays blank — empty means "keep".
+    }
+
+    private func submit() {
+        guard let p = Int(port), p > 0, p <= 65535 else {
+            errorText = "Port must be 1–65535"
+            return
+        }
+        submitting = true
+        errorText = nil
+        let input = ManualProxyInput(
+            name: name, host: host, port: p, protocol: proto,
+            username: username, password: password,
+        )
+        Task {
+            do {
+                if let mp = existing {
+                    try await state.api.updateManualProxy(id: mp.id, input)
+                } else {
+                    try await state.api.addManualProxy(input)
+                }
+                await state.refreshAll()
+                dismiss()
+            } catch APIError.manualNameInUse {
+                errorText = "Name “\(name)” is already used by another manual proxy."
+                submitting = false
             } catch {
                 errorText = error.localizedDescription
                 submitting = false

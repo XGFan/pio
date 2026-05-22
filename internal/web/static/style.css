@@ -283,6 +283,20 @@ section h2 {
 .modal .field input, .modal .field select { width: 100%; }
 .modal .buttons { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
+/* --- Protocol pill (manual proxy table) --- */
+
+.proto-pill {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+  background: var(--bg-elevated, #eef);
+  color: var(--fg-muted, #557);
+  border: 1px solid var(--border, #dde);
+}
+
 /* --- Empty states & messages --- */
 
 .empty {

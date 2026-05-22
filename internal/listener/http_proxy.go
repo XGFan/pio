@@ -195,7 +195,7 @@ func (p *HTTPProxy) handleConnect(ctx context.Context, clientConn net.Conn, req 
 	if target == "" {
 		target = req.Host
 	}
-	upConn, err := p.mgr.DialHTTPUpstream(ctx, upstream, upstreamPwd, target)
+	upConn, err := p.mgr.DialUpstream(ctx, upstream, upstreamPwd, target)
 	if err != nil {
 		write502(clientConn, "upstream dial failed")
 		p.log.Warn("connect dial failed", "target", target, "err", err)
@@ -225,7 +225,7 @@ func (p *HTTPProxy) handleAbsoluteForm(ctx context.Context, clientConn net.Conn,
 			authority += ":80"
 		}
 	}
-	upConn, err := p.mgr.DialHTTPUpstream(ctx, upstream, upstreamPwd, authority)
+	upConn, err := p.mgr.DialUpstream(ctx, upstream, upstreamPwd, authority)
 	if err != nil {
 		write502(clientConn, "upstream dial failed")
 		return

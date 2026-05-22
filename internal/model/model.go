@@ -18,23 +18,26 @@ type ApiKey struct {
 	Active        bool
 }
 
-// UpstreamProxy is one webshare-issued proxy endpoint. ID is the stable
-// 16-hex-char prefix of sha1("host:port:username"), so the same physical
-// proxy keeps the same ID across syncs even if webshare's own pagination
-// reshuffles rows.
+// UpstreamProxy is one upstream proxy endpoint. For webshare-sourced rows
+// ID is the stable 16-hex-char prefix of sha1("host:port:username"); for
+// manual rows ID is a random 16-hex string generated at insert time. The
+// Source discriminator tells the two apart.
 //
-// Alive is sync-authoritative (only the sync goroutine writes it).
+// Alive is sync-authoritative for webshare rows (only the sync goroutine
+// writes it). Manual rows stay alive=true unless explicitly toggled.
 // RecentlyFailing is advisory and set by the dial-failure heuristic — it
-// does NOT veto routing decisions; see plan §4.4.
+// does NOT veto routing decisions.
 type UpstreamProxy struct {
 	ID                 string
-	SourceApiKeyID     int64
+	Source             string // "webshare" | "manual"
+	SourceApiKeyID     *int64 // nil for manual rows
+	ManualName         string // empty for webshare; unique within source='manual' when non-empty
 	Host               string
 	Port               int
 	Username           string
 	EncryptedPassword  []byte
-	Protocol           string // "http" | "socks5"
-	DisplayName        string // auto: "{country}-{label}-{seq}"; user-editable; preserved across syncs
+	Protocol           string // "http" | "https" | "socks5"
+	DisplayName        string // auto: "{label}-{country}-{seq}"; user-editable for webshare; equals ManualName for manual
 	CountryCode        string
 	CityName           string
 	Alive              bool

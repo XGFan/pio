@@ -27,9 +27,13 @@ struct ApiKey: Codable, Identifiable, Hashable {
 
 struct UpstreamProxy: Codable, Identifiable, Hashable {
     let id: String
-    let sourceApiKeyId: Int64
+    // Defaults to "webshare" so older response shapes still decode cleanly.
+    let source: String
+    let sourceApiKeyId: Int64?
+    let manualName: String?
     let host: String
     let port: Int
+    let username: String?
     let protocol_: String
     let displayName: String
     let countryCode: String
@@ -38,10 +42,13 @@ struct UpstreamProxy: Codable, Identifiable, Hashable {
     let recentlyFailing: Bool
     let lastSeenAt: Date
 
+    var isManual: Bool { source == "manual" }
+
     enum CodingKeys: String, CodingKey {
-        case id
+        case id, source
         case sourceApiKeyId = "source_api_key_id"
-        case host, port
+        case manualName = "manual_name"
+        case host, port, username
         case protocol_ = "protocol"
         case displayName = "display_name"
         case countryCode = "country_code"
@@ -50,6 +57,36 @@ struct UpstreamProxy: Codable, Identifiable, Hashable {
         case recentlyFailing = "recently_failing"
         case lastSeenAt = "last_seen_at"
     }
+
+    // Custom decoder so old daemon responses (pre-manual-proxies) decode
+    // cleanly: `source`, `manual_name`, `source_api_key_id`, `username`
+    // may be missing or null. MUST be updated when fields are added.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try c.decode(String.self, forKey: .id)
+        self.source = (try? c.decode(String.self, forKey: .source)) ?? "webshare"
+        self.sourceApiKeyId = try c.decodeIfPresent(Int64.self, forKey: .sourceApiKeyId)
+        self.manualName = try c.decodeIfPresent(String.self, forKey: .manualName)
+        self.host = try c.decode(String.self, forKey: .host)
+        self.port = try c.decode(Int.self, forKey: .port)
+        self.username = try c.decodeIfPresent(String.self, forKey: .username)
+        self.protocol_ = try c.decode(String.self, forKey: .protocol_)
+        self.displayName = try c.decode(String.self, forKey: .displayName)
+        self.countryCode = try c.decode(String.self, forKey: .countryCode)
+        self.cityName = try c.decodeIfPresent(String.self, forKey: .cityName)
+        self.alive = try c.decode(Bool.self, forKey: .alive)
+        self.recentlyFailing = try c.decode(Bool.self, forKey: .recentlyFailing)
+        self.lastSeenAt = try c.decode(Date.self, forKey: .lastSeenAt)
+    }
+}
+
+struct ManualProxyInput: Codable {
+    let name: String
+    let host: String
+    let port: Int
+    let `protocol`: String
+    let username: String
+    let password: String
 }
 
 struct LocalUser: Codable, Identifiable, Hashable {
@@ -128,6 +165,8 @@ enum APIError: Error, LocalizedError {
     case notReady
     case status(Int, String)
     case keyInUse([ReferencingUser])
+    case upstreamInUse([ReferencingUser])
+    case manualNameInUse
     case decoding(Error)
     case transport(Error)
 
@@ -136,9 +175,21 @@ enum APIError: Error, LocalizedError {
         case .notReady: return "Daemon API not ready"
         case .status(let code, let body): return "HTTP \(code): \(body)"
         case .keyInUse(let refs): return "Key in use by \(refs.count) user(s)"
+        case .upstreamInUse(let refs): return "Upstream in use by \(refs.count) user(s)"
+        case .manualNameInUse: return "Name already used by another manual proxy"
         case .decoding(let e): return "decode: \(e)"
         case .transport(let e): return "transport: \(e)"
         }
+    }
+}
+
+struct UpstreamInUseError: Codable {
+    let error: String
+    let referencingUsers: [ReferencingUser]
+
+    enum CodingKeys: String, CodingKey {
+        case error
+        case referencingUsers = "referencing_users"
     }
 }
 
@@ -193,13 +244,54 @@ final class APIClient {
         try await patchJSON(path, body: ["display_name": displayName])
     }
 
+    // MARK: manual proxies
+
+    func listManualProxies() async throws -> [UpstreamProxy] {
+        try await getJSON("/api/v1/manual-proxies")
+    }
+
+    func addManualProxy(_ input: ManualProxyInput) async throws {
+        let data = try encoder.encode(input)
+        let (respData, http) = try await rawRequest("POST", "/api/v1/manual-proxies", body: data)
+        if (200...299).contains(http.statusCode) { return }
+        if http.statusCode == 409 {
+            if let body = try? decoder.decode([String: String].self, from: respData),
+               body["error"] == "manual_name_in_use" {
+                throw APIError.manualNameInUse
+            }
+        }
+        throw APIError.status(http.statusCode, String(data: respData, encoding: .utf8) ?? "")
+    }
+
+    func updateManualProxy(id: String, _ input: ManualProxyInput) async throws {
+        let data = try encoder.encode(input)
+        let (respData, http) = try await rawRequest("PATCH", "/api/v1/manual-proxies/\(id)", body: data)
+        if (200...299).contains(http.statusCode) { return }
+        if http.statusCode == 409 {
+            if let body = try? decoder.decode([String: String].self, from: respData),
+               body["error"] == "manual_name_in_use" {
+                throw APIError.manualNameInUse
+            }
+        }
+        throw APIError.status(http.statusCode, String(data: respData, encoding: .utf8) ?? "")
+    }
+
+    func deleteManualProxy(id: String) async throws {
+        let (data, http) = try await rawRequest("DELETE", "/api/v1/manual-proxies/\(id)", body: nil)
+        if (200...299).contains(http.statusCode) { return }
+        if http.statusCode == 409 {
+            if let err = try? decoder.decode(UpstreamInUseError.self, from: data) {
+                throw APIError.upstreamInUse(err.referencingUsers)
+            }
+        }
+        throw APIError.status(http.statusCode, String(data: data, encoding: .utf8) ?? "")
+    }
+
     func addUser(username: String, password: String) async throws {
         try await postJSON("/api/v1/users", body: ["Username": username, "Password": password])
     }
 
     func setUserMapping(username: String, upstreamId: String?) async throws {
-        var body: [String: String?] = ["upstream_proxy_id": upstreamId]
-        let _ = body  // ensure typed
         try await patchJSONAny("/api/v1/users/\(username)", body: ["upstream_proxy_id": upstreamId as Any])
     }
 

@@ -156,11 +156,15 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 	}
 
 	// Mark anything we used to know about this key but no longer see as not-alive.
+	// Guard on source='webshare' so a future bug that mis-tags a manual row
+	// with a source_api_key_id never corrupts the user's manual entries.
 	for id := range existing {
 		if _, ok := seen[id]; ok {
 			continue
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE upstream_proxies SET alive=0 WHERE id=?`, id); err != nil {
+		if _, err := tx.ExecContext(ctx,
+			`UPDATE upstream_proxies SET alive=0 WHERE id=? AND source='webshare'`, id,
+		); err != nil {
 			return fmt.Errorf("mark stale %s: %w", id, err)
 		}
 	}
@@ -182,7 +186,8 @@ type existingUpstream struct {
 
 func loadExistingUpstreams(ctx context.Context, tx *sql.Tx, keyID int64) (map[string]existingUpstream, error) {
 	rows, err := tx.QueryContext(ctx,
-		`SELECT id, display_name, country_code FROM upstream_proxies WHERE source_api_key_id = ?`,
+		`SELECT id, display_name, country_code FROM upstream_proxies
+		  WHERE source_api_key_id = ? AND source = 'webshare'`,
 		keyID,
 	)
 	if err != nil {
