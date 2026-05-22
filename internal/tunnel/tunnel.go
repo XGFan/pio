@@ -166,9 +166,11 @@ func (m *Manager) finishHTTPConnect(ctx context.Context, conn net.Conn, upstream
 		Host:   target,
 		Header: http.Header{},
 	}
-	// Only attach Proxy-Authorization if the upstream actually has creds.
-	// Manual proxies may legitimately omit auth.
-	if upstream.Username != "" || upstreamPassword != "" {
+	// Only attach Proxy-Authorization if the upstream has a username.
+	// A bare password (no user) is invalid Basic auth — the upstream
+	// sees ":pwd" and treats it as a missing user. The API layer rejects
+	// that shape; this matches the policy as defense in depth.
+	if upstream.Username != "" {
 		auth := upstream.Username + ":" + upstreamPassword
 		req.Header.Set("Proxy-Authorization", "Basic "+base64.StdEncoding.EncodeToString([]byte(auth)))
 	}
@@ -212,7 +214,10 @@ func (m *Manager) dialViaSOCKS5(ctx context.Context, upstream *model.UpstreamPro
 		_ = conn.SetDeadline(time.Now().Add(m.dialTimeout))
 	}
 
-	hasAuth := upstream.Username != "" || upstreamPassword != ""
+	// Same rule as HTTP CONNECT: a SOCKS5 USERNAME/PASSWORD sub-negotiate
+	// requires a non-empty username; an empty ULEN may be rejected by
+	// real-world servers as malformed.
+	hasAuth := upstream.Username != ""
 
 	// Method negotiate: VER=5, NMETHODS=1, METHODS=[0x02 or 0x00].
 	method := byte(0x00) // NO AUTH

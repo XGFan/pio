@@ -118,6 +118,8 @@ func TestInsertManualProxy_InvalidInput(t *testing.T) {
 		{Name: "n", Host: "", Port: 80, Protocol: "http"},
 		{Name: "n", Host: "h", Port: 0, Protocol: "http"},
 		{Name: "n", Host: "h", Port: 80, Protocol: "ftp"},
+		// Password without username → malformed Basic / SOCKS5 ULEN=0.
+		{Name: "n", Host: "h", Port: 80, Protocol: "http", Password: "pw"},
 	}
 	for _, in := range cases {
 		_, err := repo.InsertManualProxy(ctx, db.DB, mk, in)

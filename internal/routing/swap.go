@@ -205,6 +205,12 @@ type brokenInfo struct {
 // CancelGroup got rotated; listeners hook this to walk their connection
 // registries.
 func (c *Core) RebuildForUpstreamChange(ctx context.Context, changedID string, onUpstreamChanged func(username, oldUpstreamID string)) error {
+	// Guard: empty changedID would match every unmapped user (UpstreamID=="")
+	// and spuriously rotate their CancelGroup. Refuse — callers must supply
+	// a real id.
+	if changedID == "" {
+		return fmt.Errorf("routing: RebuildForUpstreamChange requires a non-empty upstream id")
+	}
 	c.mappingChangeMu.Lock()
 	defer c.mappingChangeMu.Unlock()
 

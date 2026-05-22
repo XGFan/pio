@@ -120,7 +120,9 @@ func GetUpstream(ctx context.Context, db *sql.DB, id string) (*model.UpstreamPro
 // user-curated entries before the noisy webshare list.
 func ListUpstreams(ctx context.Context, db *sql.DB) ([]model.UpstreamProxy, error) {
 	rows, err := db.QueryContext(ctx,
-		`SELECT `+upstreamSelectCols+` FROM upstream_proxies ORDER BY source DESC, country_code, display_name`,
+		// 'manual' < 'webshare' lexicographically, so ASC surfaces user-
+		// curated rows before the noisy webshare list within each bucket.
+		`SELECT `+upstreamSelectCols+` FROM upstream_proxies ORDER BY source ASC, country_code, display_name`,
 	)
 	if err != nil {
 		return nil, err
@@ -297,6 +299,11 @@ var ErrManualNameInUse = errors.New("repo: manual proxy name already in use")
 // ErrInvalidManualProxy is returned for required-field violations.
 var ErrInvalidManualProxy = errors.New("repo: invalid manual proxy input")
 
+// ErrUpstreamNotManual is returned by UpdateManualProxy/DeleteManualProxy
+// when the targeted id resolves to a non-manual row (e.g., a webshare
+// upstream). Lets the API layer turn this into a 404 rather than a 500.
+var ErrUpstreamNotManual = errors.New("repo: upstream is not manual")
+
 // ManualProxyInput is the field bag both Insert and Update consume.
 // For Update, an empty Password means "leave existing password unchanged".
 type ManualProxyInput struct {
@@ -323,6 +330,14 @@ func (in ManualProxyInput) validate() error {
 	case ProtocolHTTP, ProtocolHTTPS, ProtocolSOCKS5:
 	default:
 		return fmt.Errorf("%w: protocol must be http|https|socks5", ErrInvalidManualProxy)
+	}
+	// Password without a username is a tunnel-side foot-gun: the SOCKS5
+	// sub-negotiation would send ULEN=0 (RFC 1929 nominally allows it but
+	// many servers reject as malformed) and HTTP CONNECT's Basic auth
+	// becomes ":pwd" which most upstreams treat as auth-failure. Reject
+	// at the boundary so neither downstream path sees the broken shape.
+	if in.Password != "" && in.Username == "" {
+		return fmt.Errorf("%w: password requires a username", ErrInvalidManualProxy)
 	}
 	return nil
 }
@@ -390,7 +405,7 @@ func UpdateManualProxy(ctx context.Context, db *sql.DB, masterKey []byte, id str
 		return err
 	}
 	if cur.Source != SourceManual {
-		return fmt.Errorf("upstream %s is not manual", id)
+		return ErrUpstreamNotManual
 	}
 
 	enc := cur.EncryptedPassword
@@ -429,7 +444,7 @@ func DeleteManualProxy(ctx context.Context, db *sql.DB, id string) error {
 		return err
 	}
 	if cur.Source != SourceManual {
-		return fmt.Errorf("upstream %s is not manual", id)
+		return ErrUpstreamNotManual
 	}
 	refs, err := HasReferencingUsersForUpstream(ctx, db, id)
 	if err != nil {

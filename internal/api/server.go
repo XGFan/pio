@@ -390,7 +390,7 @@ func (s *Server) patchManualProxy(w http.ResponseWriter, r *http.Request) {
 			writeErr(w, 400, err.Error())
 			return
 		}
-		if errors.Is(err, repo.ErrNotFound) {
+		if errors.Is(err, repo.ErrNotFound) || errors.Is(err, repo.ErrUpstreamNotManual) {
 			writeErr(w, 404, "manual proxy not found")
 			return
 		}
@@ -422,7 +422,7 @@ func (s *Server) deleteManualProxy(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		if errors.Is(err, repo.ErrNotFound) {
+		if errors.Is(err, repo.ErrNotFound) || errors.Is(err, repo.ErrUpstreamNotManual) {
 			writeErr(w, 404, "manual proxy not found")
 			return
 		}
@@ -444,6 +444,22 @@ func (s *Server) patchUpstream(w http.ResponseWriter, r *http.Request) {
 	var in struct{ DisplayName string `json:"display_name"` }
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
 		writeErr(w, 400, "invalid JSON")
+		return
+	}
+	// Manual rows keep display_name and manual_name in sync by going through
+	// /api/v1/manual-proxies. Refuse the generic display-name endpoint for
+	// them so the two fields can never drift.
+	cur, err := repo.GetUpstream(r.Context(), s.deps.DB, id)
+	if err != nil {
+		if errors.Is(err, repo.ErrNotFound) {
+			writeErr(w, 404, "upstream not found")
+			return
+		}
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if cur.Source == repo.SourceManual {
+		writeErr(w, 400, "manual upstream: use PATCH /api/v1/manual-proxies/{id}")
 		return
 	}
 	if err := repo.UpdateUpstreamDisplayName(r.Context(), s.deps.DB, id, in.DisplayName); err != nil {
