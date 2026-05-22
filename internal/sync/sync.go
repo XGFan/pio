@@ -144,11 +144,15 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 		// New row: allocate next seq for this country, generate DisplayName.
 		seqMap[p.CountryCode]++
 		dn := formatDisplayName(p.CountryCode, sanitized, seqMap[p.CountryCode])
+		// Set `source` explicitly rather than relying on the column DEFAULT —
+		// the load path (loadExistingUpstreams) and the stale-marker UPDATE
+		// both filter on source='webshare', so the value here is part of the
+		// load/store invariant, not a cosmetic write.
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO upstream_proxies
-				(id, source_api_key_id, host, port, username, encrypted_password,
+				(id, source, source_api_key_id, host, port, username, encrypted_password,
 				 protocol, display_name, country_code, city_name, alive, last_seen_at)
-			VALUES (?, ?, ?, ?, ?, ?, 'http', ?, ?, ?, 1, ?)
+			VALUES (?, 'webshare', ?, ?, ?, ?, ?, 'http', ?, ?, ?, 1, ?)
 		`, id, keyID, p.ProxyAddress, p.Port, p.Username, encPwd,
 			dn, p.CountryCode, p.CityName, now); err != nil {
 			return fmt.Errorf("insert upstream %s: %w", id, err)

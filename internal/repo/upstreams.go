@@ -115,13 +115,15 @@ func GetUpstream(ctx context.Context, db *sql.DB, id string) (*model.UpstreamPro
 	return u, nil
 }
 
-// ListUpstreams returns every row, ordered by source/country/display_name.
-// Manual rows sort first within their country bucket so the UI surfaces
-// user-curated entries before the noisy webshare list.
+// ListUpstreams returns every row, ordered so that:
+//   - manual rows come before webshare rows (source ASC, since 'manual' < 'webshare')
+//   - within each source bucket, rows order by country_code then display_name
+//
+// Manual rows are inserted with country_code='' so in practice they all
+// land in a single block at the top of the response — that's the UI
+// behavior we want (user-curated entries above the noisy webshare list).
 func ListUpstreams(ctx context.Context, db *sql.DB) ([]model.UpstreamProxy, error) {
 	rows, err := db.QueryContext(ctx,
-		// 'manual' < 'webshare' lexicographically, so ASC surfaces user-
-		// curated rows before the noisy webshare list within each bucket.
 		`SELECT `+upstreamSelectCols+` FROM upstream_proxies ORDER BY source ASC, country_code, display_name`,
 	)
 	if err != nil {

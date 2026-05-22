@@ -129,6 +129,25 @@ func TestInsertManualProxy_InvalidInput(t *testing.T) {
 	}
 }
 
+func TestUpdateManualProxy_PasswordWithoutUsername(t *testing.T) {
+	db := store.MustOpenInMemoryTest(t)
+	mk := mustKey(t)
+	ctx := context.Background()
+	id, err := repo.InsertManualProxy(ctx, db.DB, mk, repo.ManualProxyInput{
+		Name: "u", Host: "h", Port: 80, Protocol: repo.ProtocolHTTP,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = repo.UpdateManualProxy(ctx, db.DB, mk, id, repo.ManualProxyInput{
+		Name: "u", Host: "h", Port: 80, Protocol: repo.ProtocolHTTP,
+		Username: "", Password: "pwOnly",
+	})
+	if !errors.Is(err, repo.ErrInvalidManualProxy) {
+		t.Fatalf("expected ErrInvalidManualProxy, got %v", err)
+	}
+}
+
 func TestUpdateManualProxy_RenameAndKeepPassword(t *testing.T) {
 	db := store.MustOpenInMemoryTest(t)
 	mk := mustKey(t)
