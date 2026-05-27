@@ -31,6 +31,38 @@ cp "$SWIFT_BIN" "$MACOS_DIR/WebshareProxy"
 cp "$REPO_ROOT/build/webshare-proxyd" "$MACOS_DIR/webshare-proxyd"
 chmod +x "$MACOS_DIR/WebshareProxy" "$MACOS_DIR/webshare-proxyd"
 
+# App icon: provide either assets/AppIcon.icns (used as-is) or assets/AppIcon.png
+# (1024x1024 source, converted here via sips/iconutil). If neither exists, the
+# app ships without a custom icon and macOS shows the generic app icon.
+# ICON_FILE_LINE is injected into Info.plist below only when an icon is bundled.
+ASSETS_DIR="$REPO_ROOT/assets"
+ICON_FILE_LINE=''
+if [ -f "$ASSETS_DIR/AppIcon.icns" ]; then
+  echo "==> Bundling icon: assets/AppIcon.icns"
+  cp "$ASSETS_DIR/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+  ICON_FILE_LINE='  <key>CFBundleIconFile</key>       <string>AppIcon</string>'
+elif [ -f "$ASSETS_DIR/AppIcon.png" ]; then
+  echo "==> Generating icon from assets/AppIcon.png"
+  ICONSET_PARENT="$(mktemp -d)"
+  ICONSET="$ICONSET_PARENT/AppIcon.iconset"
+  mkdir -p "$ICONSET"
+  # px:filename pairs covering the standard macOS iconset sizes (1x + 2x).
+  for spec in \
+    "16:icon_16x16"    "32:icon_16x16@2x" \
+    "32:icon_32x32"    "64:icon_32x32@2x" \
+    "128:icon_128x128" "256:icon_128x128@2x" \
+    "256:icon_256x256" "512:icon_256x256@2x" \
+    "512:icon_512x512" "1024:icon_512x512@2x"; do
+    px="${spec%%:*}"; name="${spec##*:}"
+    sips -z "$px" "$px" "$ASSETS_DIR/AppIcon.png" --out "$ICONSET/$name.png" >/dev/null
+  done
+  iconutil -c icns "$ICONSET" -o "$RESOURCES_DIR/AppIcon.icns"
+  rm -rf "$ICONSET_PARENT"
+  ICON_FILE_LINE='  <key>CFBundleIconFile</key>       <string>AppIcon</string>'
+else
+  echo "==> No icon found (assets/AppIcon.icns or assets/AppIcon.png); using generic app icon"
+fi
+
 # Set WEBSHARE_NO_LSUIELEMENT=1 to drop the LSUIElement key, producing a
 # Dock-visible app. Needed when Claude Code's computer-use MCP must control
 # the UI — its installed-apps snapshot filters out LSUIElement (menu-bar-only)
@@ -54,6 +86,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
   <key>CFBundleShortVersionString</key><string>0.1.0</string>
   <key>CFBundlePackageType</key>     <string>APPL</string>
   <key>LSMinimumSystemVersion</key>  <string>13.0</string>
+${ICON_FILE_LINE}
 ${LSUI_LINE}
   <key>NSHumanReadableCopyright</key><string>Local-only proxy aggregator</string>
   <key>CFBundleURLTypes</key>
