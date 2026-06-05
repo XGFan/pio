@@ -36,6 +36,7 @@ struct MainWindow: View {
 
 struct ProxySourcesView: View {
     @EnvironmentObject var state: AppState
+    @State private var universalPasswordInput: String = ""
     @State private var showAddKey = false
     @State private var deleteConflict: [ReferencingUser]? = nil
     @State private var manualDeleteConflict: [ReferencingUser]? = nil
@@ -113,6 +114,26 @@ struct ProxySourcesView: View {
                 Button("Apply") {
                     Task { await state.applySettings(state.settings) }
                 }
+            }
+            HStack(spacing: 8) {
+                Text("Universal password:").font(.subheadline)
+                SecureField("New password", text: $universalPasswordInput)
+                    .frame(width: 160)
+                Button("Save") {
+                    Task {
+                        _ = await state.setUniversalPassword(universalPasswordInput)
+                        universalPasswordInput = ""
+                    }
+                }
+                if state.settings.universalProxyPasswordSet {
+                    Button("Clear") {
+                        Task { _ = await state.setUniversalPassword("") }
+                    }
+                    .foregroundStyle(.red)
+                }
+                Text(state.settings.universalProxyPasswordSet ? "Set" : "Not set")
+                    .font(.caption)
+                    .foregroundStyle(state.settings.universalProxyPasswordSet ? .green : .secondary)
             }
             if let err = state.listenerError {
                 Text(err)

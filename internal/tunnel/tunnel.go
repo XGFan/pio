@@ -60,29 +60,61 @@ func New(core *routing.Core) *Manager {
 // snapshot. Returns the upstream proxy, its decrypted password, and the
 // per-mapping CancelGroup the caller derives its connection context from.
 //
-// Password comparison is constant-time. The snapshot is captured once at
-// the start of the function via routing.Core.Snapshot(); no lock is held
-// during the rest of the call.
+// Two auth paths, in precedence order:
+//
+//  1. Per-user: username is a local_users row and password matches that
+//     user's own password. This is the historical 1:1 mapping and always
+//     wins when the credential pair is an exact match.
+//  2. Universal: a daemon-wide universal proxy password is configured and
+//     password matches it; username is then treated as an upstream display
+//     name and resolved directly. This lets one credential reach any proxy
+//     by name without a dedicated user per proxy.
+//
+// All password comparisons are constant-time. The snapshot is captured once
+// at the start via routing.Core.Snapshot(); no lock is held afterwards.
 func (m *Manager) Acquire(_ context.Context, username, password string) (*model.UpstreamProxy, string, *routing.CancelGroup, error) {
 	state := m.core.Snapshot()
 	if state == nil {
 		return nil, "", nil, errors.New("tunnel: routing state not hydrated")
 	}
-	u, ok := state.Users[username]
-	if !ok {
-		return nil, "", nil, ErrUnknownUser
+
+	// Path 1: per-user exact credential match.
+	u, isUser := state.Users[username]
+	if isUser && subtle.ConstantTimeCompare([]byte(u.PasswordPlain), []byte(password)) == 1 {
+		if u.Broken || u.Upstream == nil {
+			return nil, "", nil, ErrBrokenMapping
+		}
+		if !u.Upstream.Alive {
+			return nil, "", nil, ErrUpstreamStale
+		}
+		return u.Upstream, u.UpstreamPwd, u.CancelGroup, nil
 	}
-	// Constant-time compare prevents leaking password length via timing.
-	if subtle.ConstantTimeCompare([]byte(u.PasswordPlain), []byte(password)) != 1 {
+
+	// Path 2: universal password → route by upstream display name. Reached
+	// when no per-user exact match applied (unknown username, OR a known
+	// username whose own password didn't match — the supplied secret may be
+	// the universal password and the username a proxy display name).
+	if state.UniversalPwd != "" &&
+		subtle.ConstantTimeCompare([]byte(state.UniversalPwd), []byte(password)) == 1 {
+		route, ok := state.ByDisplayName[username]
+		if !ok {
+			// Either no proxy has this display name, or the name is ambiguous
+			// (shared by multiple alive upstreams) and was deliberately
+			// dropped from the index. Treat as unknown so the deny-list can
+			// throttle display-name probing.
+			return nil, "", nil, ErrUnknownUser
+		}
+		if route.Upstream == nil || !route.Upstream.Alive {
+			return nil, "", nil, ErrUpstreamStale
+		}
+		return route.Upstream, route.UpstreamPwd, route.CancelGroup, nil
+	}
+
+	// Neither path matched: classify the failure for the listener/deny-list.
+	if isUser {
 		return nil, "", nil, ErrBadPassword
 	}
-	if u.Broken || u.Upstream == nil {
-		return nil, "", nil, ErrBrokenMapping
-	}
-	if !u.Upstream.Alive {
-		return nil, "", nil, ErrUpstreamStale
-	}
-	return u.Upstream, u.UpstreamPwd, u.CancelGroup, nil
+	return nil, "", nil, ErrUnknownUser
 }
 
 // DialUpstream opens a connection to the upstream proxy and tunnels a

@@ -103,6 +103,27 @@ func (r *ConnectionRegistry) CloseByUserUpstream(username, upstreamID string) in
 	return len(cancels)
 }
 
+// CloseByUpstream cancels every connection currently bridging through the
+// given upstream ID, regardless of which username (or universal/display-name
+// route) opened it. The per-username/per-mapping CancelGroup machinery can't
+// reach universal-password connections — they aren't anchored to a local user
+// — so this upstream-scoped sweep is how an upstream edit or delete tears
+// those bridges down within ~1 TCP RTT. Returns the count of cancels issued.
+func (r *ConnectionRegistry) CloseByUpstream(upstreamID string) int {
+	r.mu.RLock()
+	var cancels []context.CancelFunc
+	for _, c := range r.conns {
+		if c.UpstreamID == upstreamID {
+			cancels = append(cancels, c.CancelFunc)
+		}
+	}
+	r.mu.RUnlock()
+	for _, cancel := range cancels {
+		cancel()
+	}
+	return len(cancels)
+}
+
 // CloseByUsername cancels every connection currently registered under a
 // username regardless of upstream. Used by API-key cascade-delete when
 // the user's mapping is being nulled.

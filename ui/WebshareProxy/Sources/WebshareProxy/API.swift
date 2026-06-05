@@ -112,6 +112,9 @@ struct Settings: Codable {
     var socks5ListenerPort: Int
     var socks5ListenerBind: String
     var proxyEnabled: Bool
+    // Read-only indicator returned by GET /api/v1/settings. Older daemons
+    // that don't include this field decode to false via the custom init below.
+    var universalProxyPasswordSet: Bool
 
     enum CodingKeys: String, CodingKey {
         case syncIntervalMinutes = "sync_interval_minutes"
@@ -120,6 +123,32 @@ struct Settings: Codable {
         case socks5ListenerPort = "socks5_listener_port"
         case socks5ListenerBind = "socks5_listener_bind"
         case proxyEnabled = "proxy_enabled"
+        case universalProxyPasswordSet = "universal_proxy_password_set"
+    }
+
+    // Custom decoder so older daemons that omit `universal_proxy_password_set`
+    // still decode cleanly (defaults to false).
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        self.syncIntervalMinutes = try c.decode(Int.self, forKey: .syncIntervalMinutes)
+        self.httpListenerPort = try c.decode(Int.self, forKey: .httpListenerPort)
+        self.httpListenerBind = try c.decode(String.self, forKey: .httpListenerBind)
+        self.socks5ListenerPort = try c.decode(Int.self, forKey: .socks5ListenerPort)
+        self.socks5ListenerBind = try c.decode(String.self, forKey: .socks5ListenerBind)
+        self.proxyEnabled = try c.decode(Bool.self, forKey: .proxyEnabled)
+        self.universalProxyPasswordSet = (try? c.decodeIfPresent(Bool.self, forKey: .universalProxyPasswordSet)) ?? false
+    }
+
+    init(syncIntervalMinutes: Int, httpListenerPort: Int, httpListenerBind: String,
+         socks5ListenerPort: Int, socks5ListenerBind: String, proxyEnabled: Bool,
+         universalProxyPasswordSet: Bool = false) {
+        self.syncIntervalMinutes = syncIntervalMinutes
+        self.httpListenerPort = httpListenerPort
+        self.httpListenerBind = httpListenerBind
+        self.socks5ListenerPort = socks5ListenerPort
+        self.socks5ListenerBind = socks5ListenerBind
+        self.proxyEnabled = proxyEnabled
+        self.universalProxyPasswordSet = universalProxyPasswordSet
     }
 }
 
@@ -316,6 +345,11 @@ final class APIClient {
 
     func putSettings(_ s: Settings) async throws {
         try await putJSON("/api/v1/settings", body: s)
+    }
+
+    func setUniversalPassword(_ password: String) async throws {
+        struct Body: Encodable { let password: String }
+        try await putJSON("/api/v1/settings/universal-password", body: Body(password: password))
     }
 
     func proxyStatus() async throws -> ProxyStatus {

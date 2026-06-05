@@ -67,6 +67,21 @@ type ResolvedUser struct {
 	CancelGroup   *CancelGroup
 }
 
+// DisplayNameRoute is one (display name → upstream) entry the universal-
+// password path resolves against. It carries the same fields a ResolvedUser
+// would for the data plane, minus any per-user credential: the credential is
+// the daemon-wide universal password, validated in tunnel.Acquire.
+//
+// CancelGroup is a fresh group per build. Unrelated rebuilds do NOT cancel it
+// (so a routine sync never tears down universal-routed connections); explicit
+// upstream edits/deletes tear those connections down via the connection
+// registry's per-connection CancelFunc (registry.CloseByUpstream).
+type DisplayNameRoute struct {
+	Upstream    *model.UpstreamProxy
+	UpstreamPwd string
+	CancelGroup *CancelGroup
+}
+
 // RoutingState is the immutable snapshot the data plane reads. Phase 4
 // replaces this whole struct via a single pointer swap; readers that
 // captured the prior pointer keep seeing consistent state until they
@@ -74,8 +89,43 @@ type ResolvedUser struct {
 type RoutingState struct {
 	Users     map[string]*ResolvedUser
 	Upstreams map[string]*repo.ResolvedUpstream
-	Version   uint64
-	BuiltAt   time.Time
+	// ByDisplayName indexes routable upstreams by their display name for the
+	// universal-password path. Only alive upstreams with a non-empty,
+	// unambiguous (unique among alive rows) display name appear here.
+	ByDisplayName map[string]*DisplayNameRoute
+	// UniversalPwd is the decrypted universal proxy password, or "" when the
+	// feature is disabled. Compared constant-time in tunnel.Acquire.
+	UniversalPwd string
+	Version      uint64
+	BuiltAt      time.Time
+}
+
+// buildDisplayNameRoutes indexes upstreams by display name for the universal-
+// password path. A display name shared by 2+ alive upstreams is ambiguous and
+// is dropped entirely (not routable) so the universal path can never silently
+// pick the wrong proxy. Disabled/stale (alive=false) upstreams are excluded.
+func buildDisplayNameRoutes(upstreams map[string]*repo.ResolvedUpstream) map[string]*DisplayNameRoute {
+	counts := make(map[string]int, len(upstreams))
+	for _, up := range upstreams {
+		if up.Alive && up.DisplayName != "" {
+			counts[up.DisplayName]++
+		}
+	}
+	routes := make(map[string]*DisplayNameRoute)
+	for _, up := range upstreams {
+		if !up.Alive || up.DisplayName == "" {
+			continue
+		}
+		if counts[up.DisplayName] != 1 {
+			continue // ambiguous display name → refuse to route it
+		}
+		routes[up.DisplayName] = &DisplayNameRoute{
+			Upstream:    &up.UpstreamProxy,
+			UpstreamPwd: up.Password,
+			CancelGroup: NewCancelGroup(),
+		}
+	}
+	return routes
 }
 
 // Core owns the routing state and the two mutexes that gate access to it.
@@ -140,6 +190,10 @@ func (c *Core) Hydrate(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("hydrate users: %w", err)
 	}
+	universalPwd, err := repo.LoadUniversalProxyPassword(ctx, c.db, c.masterKey)
+	if err != nil {
+		return fmt.Errorf("hydrate universal password: %w", err)
+	}
 
 	resolved := make(map[string]*ResolvedUser, len(users))
 	for _, u := range users {
@@ -168,10 +222,12 @@ func (c *Core) Hydrate(ctx context.Context) error {
 	}
 
 	state := &RoutingState{
-		Users:     resolved,
-		Upstreams: upstreams,
-		Version:   uint64(time.Now().UnixNano()),
-		BuiltAt:   time.Now().UTC(),
+		Users:         resolved,
+		Upstreams:     upstreams,
+		ByDisplayName: buildDisplayNameRoutes(upstreams),
+		UniversalPwd:  universalPwd,
+		Version:       uint64(time.Now().UnixNano()),
+		BuiltAt:       time.Now().UTC(),
 	}
 	c.Swap(state)
 	return nil

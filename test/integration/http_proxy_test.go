@@ -40,6 +40,7 @@ type scenario struct {
 	echo       *mockwebshare.EchoTarget
 	upstream   *mockwebshare.HTTPUpstream
 	db         *store.DBHandle
+	mk         []byte
 	core       *routing.Core
 	mgr        *tunnel.Manager
 	proxy      *listener.HTTPProxy
@@ -126,6 +127,7 @@ func newScenario(t *testing.T) *scenario {
 		echo:        echo,
 		upstream:    up,
 		db:          db,
+		mk:          mk,
 		core:        core,
 		mgr:         mgr,
 		proxy:       proxy,
@@ -200,6 +202,89 @@ func TestAC2_HTTPRoutingByUsername(t *testing.T) {
 	}
 	if reqs[0].Target != s.echo.Addr() {
 		t.Errorf("mock upstream target %q, want %q", reqs[0].Target, s.echo.Addr())
+	}
+}
+
+// TestUniversalPassword_HTTPRoutingByDisplayName proves the full chain for
+// the universal-password feature: with a universal password configured, a
+// client authenticating as (upstream display name + universal password) —
+// using NO dedicated local user — is routed to that upstream, and the
+// listener rewrites auth to the upstream's own credentials.
+func TestUniversalPassword_HTTPRoutingByDisplayName(t *testing.T) {
+	s := newScenario(t)
+	ctx := context.Background()
+
+	const universalPwd = "master-secret"
+	if err := repo.SetUniversalProxyPassword(ctx, s.db.DB, s.mk, universalPwd); err != nil {
+		t.Fatal(err)
+	}
+	// Re-hydrate so the display-name index + universal password take effect.
+	if err := s.core.Hydrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// The seeded upstream's display_name is "US-Premium-01"; there is NO local
+	// user with that name. Auth succeeds purely via display-name + universal.
+	conn := dialAndConnect(t, s.proxyAddr, s.echo.Addr(), "US-Premium-01", universalPwd)
+	defer conn.Close()
+
+	const payload = "ping-universal"
+	if _, err := io.WriteString(conn, payload); err != nil {
+		t.Fatal(err)
+	}
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	buf := make([]byte, len(payload))
+	if _, err := io.ReadFull(conn, buf); err != nil {
+		t.Fatalf("echo read: %v", err)
+	}
+	if string(buf) != payload {
+		t.Fatalf("echo mismatch: got %q want %q", buf, payload)
+	}
+
+	// The upstream must have seen the UPSTREAM's credentials, proving the
+	// display-name route resolved to the right proxy and rewrote auth.
+	reqs := s.upstream.Requests()
+	if len(reqs) != 1 {
+		t.Fatalf("mock upstream saw %d requests, want 1", len(reqs))
+	}
+	if reqs[0].Username != scenUpstreamUser || reqs[0].Password != scenUpstreamPwd {
+		t.Errorf("upstream creds = %q:%q, want %q:%q",
+			reqs[0].Username, reqs[0].Password, scenUpstreamUser, scenUpstreamPwd)
+	}
+}
+
+// TestUniversalPassword_HTTPWrongPasswordRejected confirms that a correct
+// display name with the WRONG password (and no matching local user) is
+// rejected with 407 rather than silently routing.
+func TestUniversalPassword_HTTPWrongPasswordRejected(t *testing.T) {
+	s := newScenario(t)
+	ctx := context.Background()
+	if err := repo.SetUniversalProxyPassword(ctx, s.db.DB, s.mk, "master-secret"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.core.Hydrate(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	conn, err := net.Dial("tcp", s.proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	authHdr := "Basic " + base64.StdEncoding.EncodeToString([]byte("US-Premium-01:wrong"))
+	if _, err := fmt.Fprintf(conn,
+		"CONNECT %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
+		s.echo.Addr(), s.echo.Addr(), authHdr,
+	); err != nil {
+		t.Fatal(err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusProxyAuthRequired {
+		t.Fatalf("status = %d want 407", resp.StatusCode)
 	}
 }
 

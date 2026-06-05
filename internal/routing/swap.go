@@ -108,8 +108,12 @@ func (c *Core) SwapUserMapping(ctx context.Context, username string, newUpstream
 	next := &RoutingState{
 		Users:     newUsers,
 		Upstreams: cur.Upstreams,
-		Version:   cur.Version + 1,
-		BuiltAt:   time.Now().UTC(),
+		// A user-mapping swap touches no upstream definitions, so the
+		// display-name index and universal password carry over unchanged.
+		ByDisplayName: cur.ByDisplayName,
+		UniversalPwd:  cur.UniversalPwd,
+		Version:       cur.Version + 1,
+		BuiltAt:       time.Now().UTC(),
 	}
 	c.Swap(next)
 
@@ -171,8 +175,13 @@ func (c *Core) RebuildAfterSync(ctx context.Context, onMappingBroken func(userna
 	next := &RoutingState{
 		Users:     newUsers,
 		Upstreams: upstreams,
-		Version:   cur.Version + 1,
-		BuiltAt:   time.Now().UTC(),
+		// Rebuild the display-name index from the freshly-synced upstreams
+		// (alive flags and display names may have changed). The universal
+		// password itself is unchanged by a sync, so carry it over.
+		ByDisplayName: buildDisplayNameRoutes(upstreams),
+		UniversalPwd:  cur.UniversalPwd,
+		Version:       cur.Version + 1,
+		BuiltAt:       time.Now().UTC(),
 	}
 	c.Swap(next)
 
@@ -252,8 +261,12 @@ func (c *Core) RebuildForUpstreamChange(ctx context.Context, changedID string, o
 	next := &RoutingState{
 		Users:     newUsers,
 		Upstreams: upstreams,
-		Version:   cur.Version + 1,
-		BuiltAt:   time.Now().UTC(),
+		// The edited upstream may have changed its display name, alive flag,
+		// or identity tuple — rebuild the index from the fresh upstreams.
+		ByDisplayName: buildDisplayNameRoutes(upstreams),
+		UniversalPwd:  cur.UniversalPwd,
+		Version:       cur.Version + 1,
+		BuiltAt:       time.Now().UTC(),
 	}
 	c.Swap(next)
 

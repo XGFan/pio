@@ -4,8 +4,14 @@ import (
 	"context"
 	"database/sql"
 
+	"github.com/guofan/webshare-proxy/internal/crypto"
 	"github.com/guofan/webshare-proxy/internal/model"
 )
+
+// universalProxyPasswordAAD is the AAD for the settings.universal_proxy_password_enc
+// column. It binds the ciphertext to this specific column so it can't be
+// transplanted elsewhere and decrypted.
+const universalProxyPasswordAAD = "settings.universal_proxy_password_enc"
 
 // LoadSettings reads the single row from the settings table.
 func LoadSettings(ctx context.Context, db *sql.DB) (model.Settings, error) {
@@ -46,6 +52,61 @@ func SetProxyEnabled(ctx context.Context, db *sql.DB, enabled bool) error {
 		v = 1
 	}
 	_, err := db.ExecContext(ctx, `UPDATE settings SET proxy_enabled = ? WHERE id = 1`, v)
+	return err
+}
+
+// LoadUniversalProxyPassword reads and decrypts the universal proxy password
+// from the single settings row. Returns "" (and no error) when the feature is
+// unset — i.e. the stored blob is zero-length. Used by the routing layer at
+// hydrate/rebuild time so (display_name, universal_password) auth can resolve.
+func LoadUniversalProxyPassword(ctx context.Context, db *sql.DB, masterKey []byte) (string, error) {
+	var enc []byte
+	err := db.QueryRowContext(ctx,
+		`SELECT universal_proxy_password_enc FROM settings WHERE id = 1`,
+	).Scan(&enc)
+	if err != nil {
+		return "", err
+	}
+	if len(enc) == 0 {
+		return "", nil
+	}
+	pt, err := crypto.Decrypt(masterKey, enc, crypto.ColumnAAD(universalProxyPasswordAAD))
+	if err != nil {
+		return "", err
+	}
+	return string(pt), nil
+}
+
+// HasUniversalProxyPassword reports whether a universal proxy password is
+// configured, without decrypting it. Used by GET /settings so the UI can show
+// a set/unset indicator without ever revealing the value.
+func HasUniversalProxyPassword(ctx context.Context, db *sql.DB) (bool, error) {
+	var n int
+	err := db.QueryRowContext(ctx,
+		`SELECT length(universal_proxy_password_enc) FROM settings WHERE id = 1`,
+	).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// SetUniversalProxyPassword sets (or clears) the universal proxy password. An
+// empty plaintext clears it (stores a zero-length blob = feature disabled);
+// a non-empty plaintext is AES-256-GCM-encrypted with the column AAD. The
+// caller is responsible for re-hydrating routing so the change takes effect.
+func SetUniversalProxyPassword(ctx context.Context, db *sql.DB, masterKey []byte, plaintext string) error {
+	enc := []byte{}
+	if plaintext != "" {
+		var err error
+		enc, err = crypto.Encrypt(masterKey, []byte(plaintext), crypto.ColumnAAD(universalProxyPasswordAAD))
+		if err != nil {
+			return err
+		}
+	}
+	_, err := db.ExecContext(ctx,
+		`UPDATE settings SET universal_proxy_password_enc = ? WHERE id = 1`, enc,
+	)
 	return err
 }
 

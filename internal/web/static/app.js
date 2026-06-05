@@ -243,6 +243,7 @@ function systemSection() {
     socks5_listener_port: 1080,
     socks5_listener_bind: '127.0.0.1',
     proxy_enabled: false,
+    universal_proxy_password_set: false,
   };
   const section = el('section', {},
     el('h2', {},
@@ -283,6 +284,20 @@ function systemSection() {
         })),
         el('div', { class: 'grow' }),
         el('button', { class: 'primary', onclick: () => applySettings(s) }, 'Apply'),
+      ),
+      el('div', { class: 'row' },
+        field('Universal password', inputEl({
+          type: 'password',
+          placeholder: s.universal_proxy_password_set
+            ? '•••••• set — type to replace'
+            : 'optional: display-name login for any proxy',
+          oninput: (e) => { s._universalPwd = e.target.value; },
+        })),
+        el('div', { class: 'grow' }),
+        el('button', { class: 'primary', onclick: () => setUniversalPassword(s) }, 'Save'),
+        s.universal_proxy_password_set
+          ? el('button', { onclick: () => clearUniversalPassword() }, 'Clear')
+          : null,
       ),
       state.listenerError ? el('div', { class: 'banner error' }, state.listenerError) : null,
     ),
@@ -437,6 +452,30 @@ async function applySettings(s) {
       socks5_listener_bind: s.socks5_listener_bind,
       proxy_enabled: s.proxy_enabled,
     });
+  } catch (e) {
+    state.listenerError = e.message;
+  }
+  await refreshAll();
+}
+
+async function setUniversalPassword(s) {
+  if (!s._universalPwd) {
+    state.listenerError = 'Enter a password to set, or use Clear to remove it.';
+    render();
+    return;
+  }
+  try {
+    await apiPUT('/api/v1/settings/universal-password', { password: s._universalPwd });
+  } catch (e) {
+    state.listenerError = e.message;
+  }
+  await refreshAll();
+}
+
+async function clearUniversalPassword() {
+  if (!confirm('Clear the universal proxy password? Clients using a display name + this password will stop working.')) return;
+  try {
+    await apiPUT('/api/v1/settings/universal-password', { password: '' });
   } catch (e) {
     state.listenerError = e.message;
   }

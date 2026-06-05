@@ -158,6 +158,7 @@ func (s *Server) mountRoutes(r chi.Router) {
 
 	r.Get("/api/v1/settings", s.getSettings)
 	r.Put("/api/v1/settings", s.putSettings)
+	r.Put("/api/v1/settings/universal-password", s.putUniversalPassword)
 
 	r.Get("/api/v1/proxy/status", s.proxyStatusHandler)
 	r.Post("/api/v1/proxy/start", s.proxyStartHandler)
@@ -407,6 +408,10 @@ func (s *Server) patchManualProxy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "rebuild: "+err.Error())
 		return
 	}
+	// Tear down any universal-password (display-name) bridges to this upstream
+	// too — they aren't anchored to a local user so RebuildForUpstreamChange's
+	// per-user callback can't reach them.
+	s.deps.Registry.CloseByUpstream(id)
 	s.deps.Hub.Broadcast("manual_proxy_updated", map[string]any{"id": id})
 	writeJSON(w, 200, map[string]string{"id": id})
 }
@@ -435,6 +440,9 @@ func (s *Server) deleteManualProxy(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "rebuild: "+err.Error())
 		return
 	}
+	// Close universal-password (display-name) bridges to the now-deleted
+	// upstream; the per-user rebuild callback above can't reach them.
+	s.deps.Registry.CloseByUpstream(id)
 	s.deps.Hub.Broadcast("manual_proxy_deleted", map[string]any{"id": id})
 	writeJSON(w, 200, map[string]bool{"deleted": true})
 }
@@ -609,6 +617,10 @@ type settingsDTO struct {
 	SOCKS5ListenerPort  int    `json:"socks5_listener_port"`
 	SOCKS5ListenerBind  string `json:"socks5_listener_bind"`
 	ProxyEnabled        bool   `json:"proxy_enabled"`
+	// UniversalProxyPasswordSet is read-only (GET): whether a universal proxy
+	// password is configured. The value itself is never returned. Set/clear it
+	// via PUT /api/v1/settings/universal-password.
+	UniversalProxyPasswordSet bool `json:"universal_proxy_password_set"`
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
@@ -617,14 +629,46 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
+	hasUniversal, err := repo.HasUniversalProxyPassword(r.Context(), s.deps.DB)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
 	writeJSON(w, 200, settingsDTO{
-		SyncIntervalMinutes: st.SyncIntervalMinutes,
-		HTTPListenerPort:    st.HTTPListenerPort,
-		HTTPListenerBind:    st.HTTPListenerBind,
-		SOCKS5ListenerPort:  st.SOCKS5ListenerPort,
-		SOCKS5ListenerBind:  st.SOCKS5ListenerBind,
-		ProxyEnabled:        st.ProxyEnabled,
+		SyncIntervalMinutes:       st.SyncIntervalMinutes,
+		HTTPListenerPort:          st.HTTPListenerPort,
+		HTTPListenerBind:          st.HTTPListenerBind,
+		SOCKS5ListenerPort:        st.SOCKS5ListenerPort,
+		SOCKS5ListenerBind:        st.SOCKS5ListenerBind,
+		ProxyEnabled:              st.ProxyEnabled,
+		UniversalProxyPasswordSet: hasUniversal,
 	})
+}
+
+// putUniversalPassword sets or clears the universal proxy password. An empty
+// password clears it (disables the feature). The value lives on its own
+// endpoint — decoupled from the bulk settings PUT — so a partial settings
+// payload can never zero out the listener ports, and a port-in-use rollback
+// can never revert the password. Routing is re-hydrated so the change takes
+// effect immediately for new connections.
+func (s *Server) putUniversalPassword(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, 400, "invalid JSON")
+		return
+	}
+	if err := repo.SetUniversalProxyPassword(r.Context(), s.deps.DB, s.deps.MasterKey, in.Password); err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	if err := s.deps.Core.Hydrate(r.Context()); err != nil {
+		writeErr(w, 500, "rehydrate: "+err.Error())
+		return
+	}
+	s.deps.Hub.Broadcast("settings_updated", map[string]any{"universal_proxy_password_set": in.Password != ""})
+	writeJSON(w, 200, map[string]bool{"universal_proxy_password_set": in.Password != ""})
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
@@ -666,13 +710,22 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// The universal password is managed via its own endpoint and untouched
+	// here; report its real current state so this response stays consistent
+	// with GET /settings (don't let it default to a misleading false).
+	hasUniversal, err := repo.HasUniversalProxyPassword(r.Context(), s.deps.DB)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
 	writeJSON(w, 200, settingsDTO{
-		SyncIntervalMinutes: cur.SyncIntervalMinutes,
-		HTTPListenerPort:    cur.HTTPListenerPort,
-		HTTPListenerBind:    cur.HTTPListenerBind,
-		SOCKS5ListenerPort:  cur.SOCKS5ListenerPort,
-		SOCKS5ListenerBind:  cur.SOCKS5ListenerBind,
-		ProxyEnabled:        cur.ProxyEnabled,
+		SyncIntervalMinutes:       cur.SyncIntervalMinutes,
+		HTTPListenerPort:          cur.HTTPListenerPort,
+		HTTPListenerBind:          cur.HTTPListenerBind,
+		SOCKS5ListenerPort:        cur.SOCKS5ListenerPort,
+		SOCKS5ListenerBind:        cur.SOCKS5ListenerBind,
+		ProxyEnabled:              cur.ProxyEnabled,
+		UniversalProxyPasswordSet: hasUniversal,
 	})
 }
 

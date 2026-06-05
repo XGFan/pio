@@ -20,7 +20,8 @@ final class AppState: ObservableObject {
         syncIntervalMinutes: 60,
         httpListenerPort: 8080, httpListenerBind: "127.0.0.1",
         socks5ListenerPort: 1080, socks5ListenerBind: "127.0.0.1",
-        proxyEnabled: true
+        proxyEnabled: true,
+        universalProxyPasswordSet: false
     )
     @Published var lastError: String?
 
@@ -106,6 +107,20 @@ final class AppState: ObservableObject {
     func applySettings(_ s: Settings) async -> Bool {
         do {
             try await api.putSettings(s)
+            listenerError = nil
+            await refreshAll()
+            return true
+        } catch {
+            listenerError = error.localizedDescription
+            await refreshAll()
+            return false
+        }
+    }
+
+    @discardableResult
+    func setUniversalPassword(_ password: String) async -> Bool {
+        do {
+            try await api.setUniversalPassword(password)
             listenerError = nil
             await refreshAll()
             return true
