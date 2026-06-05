@@ -92,10 +92,13 @@ explicitly. Three working paths:
    `osascript` binary has Accessibility permission, which it does not by
    default in this setup (`-1719` error). Not the preferred path.
 
-The window has two tabs (`Proxy Sources`, `Users & Rules`) with `System`
-port/host fields (defaults `1080`, `8080`, both bound to `127.0.0.1`),
-`Sync (min)` (default 60), an `Apply` button, and a `Webshare` API-keys
-section (empty by default).
+The window has two tabs (`Proxy Sources`, `Users & Rules`). The `System`
+section has a `Listen addr` selector and a single `Proxy port` field (the
+unified HTTP+SOCKS5 port, default `8080`, bound to `127.0.0.1`), `Sync (min)`
+(default 60), a `Universal password` field (with `Set`/`Not set` status and
+`Save`/`Clear` buttons), an `Apply` button, and a `Start/Stop Proxy` button.
+Below it are the `Webshare` API-keys section (empty by default) and a
+`Manual Proxies` section.
 
 ## Multi-monitor gotchas
 
