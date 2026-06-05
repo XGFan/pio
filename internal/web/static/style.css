@@ -210,8 +210,59 @@ section h2 {
 
 .row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .row > .grow { flex: 1; }
-.field { display: flex; flex-direction: column; gap: 2px; }
-.field label { margin: 0; }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field label { margin: 0; display: flex; align-items: center; }
+
+/* Side-by-side config cards (System | Subscription): equalise header heights
+ * (one has a Start/Stop button, the other doesn't) and give the card contents
+ * comfortable vertical rhythm instead of the cramped default. */
+.config-row > section > h2 { min-height: 36px; }
+.config-row .card { display: flex; flex-direction: column; gap: 16px; }
+.config-row .card > * { margin: 0; }
+
+/* ⓘ help icon + hover/click bubble next to field labels. */
+.info-tip {
+  position: relative;
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; margin-left: 6px;
+  border: 1px solid var(--border); border-radius: 50%;
+  font-size: 10px; line-height: 1; color: var(--fg-muted);
+  cursor: help; user-select: none; vertical-align: middle;
+}
+.info-tip:hover { color: var(--accent); border-color: var(--accent); }
+.info-tip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.info-tip .info-bubble {
+  display: none;
+  position: absolute; left: 0; bottom: calc(100% + 6px);
+  width: 240px; max-width: 60vw; padding: 8px 10px;
+  background: var(--bg-card); color: var(--fg);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: 12px; font-weight: 400; line-height: 1.45;
+  letter-spacing: normal; text-transform: none; white-space: normal;
+  z-index: 30;
+}
+.info-tip:hover .info-bubble, .info-tip.open .info-bubble { display: block; }
+
+/* small status pill (e.g. universal password set / not set). */
+.tag {
+  display: inline-block; margin-left: 8px; padding: 1px 7px;
+  border-radius: 999px; font-size: 11px; font-weight: 500;
+  letter-spacing: normal; text-transform: none; vertical-align: middle;
+}
+.tag-on { color: var(--success); background: rgba(22, 163, 74, 0.14); }
+.tag-off { color: var(--fg-muted); background: var(--bg-soft); }
+
+/* inline checkbox + label (e.g. Enable subscription). */
+.checkbox-row {
+  display: inline-flex; align-items: center; gap: 8px; margin: 0;
+  color: var(--fg); font-size: 13px; cursor: pointer; user-select: none;
+}
+.checkbox-row input[type='checkbox'] {
+  width: auto; height: auto; min-width: 0; padding: 0; margin: 0;
+  accent-color: var(--accent);
+}
+.checkbox-row.disabled { color: var(--fg-muted); cursor: not-allowed; }
 
 .status-dot {
   display: inline-block; width: 8px; height: 8px; border-radius: 50%;

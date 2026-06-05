@@ -283,13 +283,18 @@ function systemSection() {
         el('button', { class: 'primary', onclick: () => applySettings(s) }, 'Apply'),
       ),
       el('div', { class: 'row' },
-        field('Universal password', inputEl({
-          type: 'password',
-          placeholder: s.universal_proxy_password_set
-            ? '•••••• set — type to replace'
-            : 'optional: display-name login for any proxy',
-          oninput: (e) => { s._universalPwd = e.target.value; },
-        })),
+        el('div', { class: 'field' },
+          el('label', {},
+            'Universal password',
+            infoTip('When set, a client can connect using a proxy’s display name as the username and this password to route through that proxy — no dedicated per-proxy user needed.'),
+            el('span', { class: 'tag ' + (s.universal_proxy_password_set ? 'tag-on' : 'tag-off') },
+              s.universal_proxy_password_set ? 'set' : 'not set'),
+          ),
+          inputEl({
+            type: 'password',
+            oninput: (e) => { s._universalPwd = e.target.value; },
+          }),
+        ),
         el('div', { class: 'grow' }),
         el('button', { class: 'primary', onclick: () => setUniversalPassword(s) }, 'Save'),
         s.universal_proxy_password_set
@@ -312,27 +317,39 @@ function subscriptionSection() {
     subscription_enabled: false,
     subscription_host: '',
   };
+  const hasUniversal = s.universal_proxy_password_set;
+  const enableTip = hasUniversal
+    ? 'Serves a public /subscription endpoint listing your routable proxies for client apps; authenticated by the universal password.'
+    : 'Set a Universal password in the System card first — the subscription endpoint authenticates with it.';
   return el('section', { style: 'flex:1; min-width:320px' },
     el('h2', {}, 'Subscription'),
     card(
       el('div', { class: 'row' },
-        field('Enable subscription', inputEl({
-          type: 'checkbox',
-          checked: s.subscription_enabled ? '' : null,
-          onchange: (e) => { s.subscription_enabled = e.target.checked; },
-        })),
+        el('label', { class: 'checkbox-row' + (hasUniversal ? '' : ' disabled') },
+          inputEl({
+            type: 'checkbox',
+            checked: s.subscription_enabled ? '' : null,
+            disabled: hasUniversal ? null : '',
+            onchange: (e) => { s.subscription_enabled = e.target.checked; },
+          }),
+          'Enable subscription',
+          infoTip(enableTip),
+        ),
       ),
       el('div', { class: 'row' },
-        field('Subscription host', inputEl({
-          value: s.subscription_host,
-          placeholder: 'ip or domain (e.g. proxy.example.com)',
-          style: 'min-width:220px',
-          oninput: (e) => { s.subscription_host = e.target.value; },
-        })),
+        el('div', { class: 'field' },
+          el('label', {},
+            'Subscription host',
+            infoTip('The public ip or domain clients use to reach the proxy. It fills the host:port of every generated subscription line.'),
+          ),
+          inputEl({
+            value: s.subscription_host,
+            placeholder: 'e.g. 192.168.2.241 or proxy.example.com',
+            style: 'min-width:220px',
+            oninput: (e) => { s.subscription_host = e.target.value; },
+          }),
+        ),
       ),
-      !s.universal_proxy_password_set
-        ? el('div', { class: 'banner error' }, 'Set a universal password (left) to enable the subscription endpoint.')
-        : null,
       el('div', { class: 'row' },
         el('button', { onclick: () => copySubscriptionURL() }, 'Copy subscription URL'),
         el('div', { class: 'grow' }),
@@ -386,7 +403,9 @@ function webshareSection() {
 }
 
 function renderKeyCard(key) {
-  const owned = state.upstreams.filter((u) => u.source_api_key_id === key.id);
+  // Dead (alive=false) webshare upstreams are pruned by sync; hide any that
+  // linger in the client snapshot between a row going stale and the next sync.
+  const owned = state.upstreams.filter((u) => u.source_api_key_id === key.id && u.alive);
   return el('div', { class: 'key-card' },
     el('div', { class: 'header' },
       el('span', { class: 'label' }, key.label),
@@ -762,6 +781,19 @@ function card(...children) {
 
 function field(label, input) {
   return el('div', { class: 'field' }, el('label', {}, label), input);
+}
+
+// infoTip renders a small ⓘ icon that reveals a help bubble on hover or
+// click. Used next to field labels so explanatory text doesn't have to live
+// in placeholders.
+function infoTip(text) {
+  return el('span', {
+    class: 'info-tip',
+    tabindex: '0',
+    role: 'button',
+    'aria-label': text,
+    onclick: (e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.toggle('open'); },
+  }, 'ⓘ', el('span', { class: 'info-bubble' }, text));
 }
 
 function inputEl(attrs) {

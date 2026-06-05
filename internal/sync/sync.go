@@ -145,8 +145,8 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 		seqMap[p.CountryCode]++
 		dn := formatDisplayName(p.CountryCode, sanitized, seqMap[p.CountryCode])
 		// Set `source` explicitly rather than relying on the column DEFAULT —
-		// the load path (loadExistingUpstreams) and the stale-marker UPDATE
-		// both filter on source='webshare', so the value here is part of the
+		// the load path (loadExistingUpstreams) and the stale-row DELETE both
+		// filter on source='webshare', so the value here is part of the
 		// load/store invariant, not a cosmetic write.
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO upstream_proxies
@@ -159,17 +159,21 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 		}
 	}
 
-	// Mark anything we used to know about this key but no longer see as not-alive.
-	// Guard on source='webshare' so a future bug that mis-tags a manual row
-	// with a source_api_key_id never corrupts the user's manual entries.
+	// Proxies we used to know about for this key but no longer see have been
+	// rotated out by Webshare — delete them outright instead of keeping dead
+	// rows around to clutter the UI. Any local_user mapped to one is
+	// auto-unmapped by the FK (ON DELETE SET NULL) and flagged broken on the
+	// next routing rebuild. Guard on source='webshare' so a future bug that
+	// mis-tags a manual row with a source_api_key_id can never delete the
+	// user's manual entries.
 	for id := range existing {
 		if _, ok := seen[id]; ok {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx,
-			`UPDATE upstream_proxies SET alive=0 WHERE id=? AND source='webshare'`, id,
+			`DELETE FROM upstream_proxies WHERE id=? AND source='webshare'`, id,
 		); err != nil {
-			return fmt.Errorf("mark stale %s: %w", id, err)
+			return fmt.Errorf("delete stale %s: %w", id, err)
 		}
 	}
 

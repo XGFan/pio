@@ -165,7 +165,7 @@ func TestSyncIsIdempotent(t *testing.T) {
 	}
 }
 
-func TestSyncMarksAbsentUpstreamsStale(t *testing.T) {
+func TestSyncDeletesAbsentUpstreams(t *testing.T) {
 	fx := newFixture(t)
 	ctx := context.Background()
 	fx.fetcher.proxies = []webshare.Proxy{
@@ -184,21 +184,54 @@ func TestSyncMarksAbsentUpstreamsStale(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// The rotated-out proxy is deleted, not kept as a dead row.
 	rows := dumpUpstreams(t, fx.db, fx.keyID)
-	if len(rows) != 2 {
-		t.Fatalf("expected 2 rows (1 alive + 1 stale), got %d", len(rows))
+	if len(rows) != 1 {
+		t.Fatalf("expected 1 row (the surviving proxy), got %d", len(rows))
 	}
-	alive := 0
-	stale := 0
-	for _, r := range rows {
-		if r.alive {
-			alive++
-		} else {
-			stale++
-		}
+	if !rows[0].alive {
+		t.Errorf("surviving proxy should be alive")
 	}
-	if alive != 1 || stale != 1 {
-		t.Fatalf("alive=%d stale=%d, want 1/1", alive, stale)
+	if rows[0].host != "1.1.1.1" {
+		t.Errorf("wrong surviving proxy: host=%q want 1.1.1.1", rows[0].host)
+	}
+}
+
+// TestSyncDeleteUnmapsLocalUser pins the documented side-effect: when a synced
+// proxy a local user is mapped to gets rotated out and deleted, the FK
+// (ON DELETE SET NULL) clears that user's mapping rather than the delete
+// failing or leaving a dangling reference.
+func TestSyncDeleteUnmapsLocalUser(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	fx.fetcher.proxies = []webshare.Proxy{
+		mkProxy("1.1.1.1", 1080, "u1", "p1", "US"),
+		mkProxy("2.2.2.2", 1080, "u2", "p2", "US"),
+	}
+	if err := fx.svc.SyncKey(ctx, fx.keyID); err != nil {
+		t.Fatal(err)
+	}
+
+	dropID := StableID("2.2.2.2", 1080, "u2")
+	if err := repo.InsertLocalUser(ctx, fx.db, "alice", "pw", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.UpdateLocalUserMapping(ctx, fx.db, "alice", &dropID); err != nil {
+		t.Fatal(err)
+	}
+
+	// Drop the mapped proxy from the next fetch → it gets deleted.
+	fx.fetcher.proxies = []webshare.Proxy{mkProxy("1.1.1.1", 1080, "u1", "p1", "US")}
+	if err := fx.svc.SyncKey(ctx, fx.keyID); err != nil {
+		t.Fatal(err)
+	}
+
+	u, err := repo.GetLocalUser(ctx, fx.db, "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u.UpstreamProxyID != nil {
+		t.Errorf("expected mapping cleared (NULL) after upstream deleted, got %q", *u.UpstreamProxyID)
 	}
 }
 
