@@ -52,6 +52,13 @@ type Deps struct {
 	ProxyStatus func() (running bool, proxyAddr string)
 	// ShutdownFn is called by POST /api/v1/shutdown.
 	ShutdownFn   func()
+	// ReplaceUpstream replaces a single webshare upstream (by its IP), sourcing
+	// the new proxy from a country or ASN. On a non-dry-run it has already
+	// re-synced the key + rebuilt routing by the time it returns. Wired in
+	// cli/run.go so api stays decoupled from sync/webshare.
+	ReplaceUpstream func(ctx context.Context, upstreamID string, in ReplaceUpstreamInput) (*ReplaceUpstreamResult, error)
+	// WebshareReplaceOptions returns the available countries/ASNs for a key.
+	WebshareReplaceOptions func(ctx context.Context, keyID int64) (*ReplaceOptions, error)
 	// PasswordPeek is rate-limited (1/sec/IP) by the server itself.
 	now func() time.Time
 }
@@ -143,6 +150,8 @@ func (s *Server) mountRoutes(r chi.Router) {
 
 	r.Get("/api/v1/upstreams", s.listUpstreams)
 	r.Patch("/api/v1/upstreams/{id}", s.patchUpstream)
+	r.Post("/api/v1/upstreams/{id}/replace", s.replaceUpstream)
+	r.Get("/api/v1/keys/{id}/replace-options", s.replaceOptions)
 
 	r.Get("/api/v1/manual-proxies", s.listManualProxies)
 	r.Post("/api/v1/manual-proxies", s.addManualProxy)

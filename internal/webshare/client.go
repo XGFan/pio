@@ -9,12 +9,15 @@
 package webshare
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
+	"strconv"
 	"time"
 )
 
@@ -81,6 +84,111 @@ type Proxy struct {
 type listPage struct {
 	Next    *string `json:"next"`
 	Results []Proxy `json:"results"`
+}
+
+// --- Proxy replacement (by country / by ASN) -------------------------------
+
+// ReplaceTarget is the `to_replace` selector. Exactly one shape is used:
+// by IP address (the common per-proxy case), by country, or by ASN.
+type ReplaceTarget struct {
+	Type        string   `json:"type"` // "ip_address" | "country" | "asn"
+	IPAddresses []string `json:"ip_addresses,omitempty"`
+	CountryCode string   `json:"country_code,omitempty"`
+	ASNNumbers  []int    `json:"asn_numbers,omitempty"`
+}
+
+// ReplaceWith is one entry of the `replace_with` array: where the replacement
+// proxy should come from. The API accepts "country" or "asn".
+type ReplaceWith struct {
+	Type        string `json:"type"` // "country" | "asn"
+	CountryCode string `json:"country_code,omitempty"`
+	ASNNumbers  []int  `json:"asn_numbers,omitempty"`
+}
+
+// ReplaceRequest is the POST /api/v2/proxy/replace/ body.
+type ReplaceRequest struct {
+	ToReplace   ReplaceTarget `json:"to_replace"`
+	ReplaceWith []ReplaceWith `json:"replace_with"`
+	DryRun      bool          `json:"dry_run"`
+}
+
+// ReplaceResult is the subset of the replacement response we surface. The
+// operation is synchronous: state is "completed" on the response.
+type ReplaceResult struct {
+	ID             int64  `json:"id"`
+	State          string `json:"state"`
+	DryRun         bool   `json:"dry_run"`
+	ProxiesRemoved int    `json:"proxies_removed"`
+	ProxiesAdded   int    `json:"proxies_added"`
+}
+
+// Replace requests a proxy replacement. With DryRun=true the API simulates
+// the change (no quota consumed, no proxies actually swapped) and still
+// reports proxies_removed/added, which the caller can show as a preview.
+//
+// A real replacement is NON-IDEMPOTENT and billable: it is sent with NO retry,
+// because a 5xx after the server already applied the change would, on retry,
+// replace a second proxy and burn another replacement. The caller surfaces a
+// transient failure to the operator, who can re-check and retry deliberately.
+func (c *Client) Replace(ctx context.Context, req ReplaceRequest) (*ReplaceResult, error) {
+	b, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal replace request: %w", err)
+	}
+	var out ReplaceResult
+	if _, err := c.doJSONOnce(ctx, http.MethodPost, c.baseURL+"/api/v2/proxy/replace/", b, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+// ASN is one autonomous-system option for the replacement UI.
+type ASN struct {
+	Number    int    `json:"number"`
+	Name      string `json:"name"`
+	Available int    `json:"available"`
+}
+
+// Config is the subset of GET /api/v2/proxy/config/ used to populate the
+// replacement UI's country/ASN dropdowns. AvailableCountries maps a country
+// code to how many proxies are available there; AvailableASNs is the ASN
+// equivalent (the raw API encodes each as [name, count]).
+type Config struct {
+	AvailableCountries map[string]int
+	AvailableASNs      []ASN
+}
+
+// rawConfig mirrors the wire shape we decode before flattening into Config.
+// available_asns is {"3356":["Level3",1510], ...}; the value is a 2-tuple of
+// (name, available-count) decoded loosely so a schema tweak can't panic.
+type rawConfig struct {
+	AvailableCountries map[string]int             `json:"available_countries"`
+	AvailableASNs      map[string][]json.RawMessage `json:"available_asns"`
+}
+
+// GetConfig fetches the account's proxy config and returns the available
+// countries and ASNs for the replacement UI.
+func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
+	var raw rawConfig
+	if err := c.getJSON(ctx, "/api/v2/proxy/config/", &raw); err != nil {
+		return nil, err
+	}
+	cfg := &Config{AvailableCountries: raw.AvailableCountries}
+	for num, tuple := range raw.AvailableASNs {
+		n, err := strconv.Atoi(num)
+		if err != nil || len(tuple) < 2 {
+			continue
+		}
+		var name string
+		var avail int
+		_ = json.Unmarshal(tuple[0], &name)
+		_ = json.Unmarshal(tuple[1], &avail)
+		cfg.AvailableASNs = append(cfg.AvailableASNs, ASN{Number: n, Name: name, Available: avail})
+	}
+	sort.Slice(cfg.AvailableASNs, func(i, j int) bool {
+		return cfg.AvailableASNs[i].Name < cfg.AvailableASNs[j].Name
+	})
+	return cfg, nil
 }
 
 // ListProxies fetches every upstream proxy reachable via this client's API
@@ -174,4 +282,89 @@ func (c *Client) fetchOnce(ctx context.Context, url string) (page *listPage, ret
 		return nil, false, fmt.Errorf("decode page: %w", err)
 	}
 	return &p, false, nil
+}
+
+// doJSON performs method+path with an optional JSON body, retrying transient
+// failures (network, 5xx) per c.retryDelays, and decodes any 2xx response into
+// out (when non-nil). 401 → ErrUnauthorized; other 4xx surface the body so the
+// caller can show the API's validation message.
+func (c *Client) doJSON(ctx context.Context, method, path string, body, out any) error {
+	var bodyBytes []byte
+	if body != nil {
+		b, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal body: %w", err)
+		}
+		bodyBytes = b
+	}
+	url := c.baseURL + path
+	attempts := len(c.retryDelays) + 1
+	var lastErr error
+	for i := range attempts {
+		if i > 0 {
+			t := time.NewTimer(c.retryDelays[i-1])
+			select {
+			case <-ctx.Done():
+				t.Stop()
+				return ctx.Err()
+			case <-t.C:
+			}
+		}
+		retry, err := c.doJSONOnce(ctx, method, url, bodyBytes, out)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !retry {
+			return err
+		}
+	}
+	return fmt.Errorf("webshare: exhausted retries: %w", lastErr)
+}
+
+func (c *Client) doJSONOnce(ctx context.Context, method, url string, body []byte, out any) (retry bool, err error) {
+	var rdr io.Reader
+	if body != nil {
+		rdr = bytes.NewReader(body)
+	}
+	req, err := http.NewRequestWithContext(ctx, method, url, rdr)
+	if err != nil {
+		return false, fmt.Errorf("build request: %w", err)
+	}
+	req.Header.Set("Authorization", "Token "+c.apiKey)
+	req.Header.Set("Accept", "application/json")
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return true, fmt.Errorf("http do: %w", err)
+	}
+	defer resp.Body.Close()
+
+	switch {
+	case resp.StatusCode == http.StatusUnauthorized:
+		return false, ErrUnauthorized
+	case resp.StatusCode >= 500 && resp.StatusCode < 600:
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return true, fmt.Errorf("webshare: status %d: %s", resp.StatusCode, b)
+	case resp.StatusCode >= 400:
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return false, fmt.Errorf("webshare: status %d: %s", resp.StatusCode, b)
+	case resp.StatusCode < 200 || resp.StatusCode >= 300:
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		return false, fmt.Errorf("webshare: unexpected status %d: %s", resp.StatusCode, b)
+	}
+
+	if out != nil {
+		if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+			return false, fmt.Errorf("decode response: %w", err)
+		}
+	}
+	return false, nil
+}
+
+func (c *Client) getJSON(ctx context.Context, path string, out any) error {
+	return c.doJSON(ctx, http.MethodGet, path, nil, out)
 }

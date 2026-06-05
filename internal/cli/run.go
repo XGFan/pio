@@ -2,12 +2,14 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
 	"net"
 	"os"
 	"os/signal"
+	"sort"
 	"sync"
 	"syscall"
 	"time"
@@ -20,6 +22,7 @@ import (
 	syncpkg "github.com/guofan/webshare-proxy/internal/sync"
 	"github.com/guofan/webshare-proxy/internal/tunnel"
 	"github.com/guofan/webshare-proxy/internal/web"
+	"github.com/guofan/webshare-proxy/internal/webshare"
 	"github.com/guofan/webshare-proxy/internal/ws"
 )
 
@@ -180,6 +183,77 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	}
 	apiSrv.Deps().ProxyStatus = func() (bool, string) {
 		return lset.Status()
+	}
+	apiSrv.Deps().ReplaceUpstream = func(ctx context.Context, upstreamID string, in api.ReplaceUpstreamInput) (*api.ReplaceUpstreamResult, error) {
+		up, err := repo.GetUpstream(ctx, db, upstreamID)
+		if err != nil {
+			return nil, err // repo.ErrNotFound → 404 in the handler
+		}
+		if up.Source != repo.SourceWebshare || up.SourceApiKeyID == nil {
+			return nil, api.ErrNotWebshareUpstream
+		}
+		rw := webshare.ReplaceWith{Type: in.ReplaceWith}
+		switch in.ReplaceWith {
+		case "country":
+			rw.CountryCode = in.CountryCode
+		case "asn":
+			rw.ASNNumbers = in.ASNNumbers
+		}
+		res, err := syncSvc.ReplaceByIP(ctx, *up.SourceApiKeyID, up.Host, rw, in.DryRun)
+		if err != nil {
+			return nil, err
+		}
+		// A real replacement changed the account's proxy list. Webshare
+		// processes it asynchronously (the response is "pending"), so re-sync
+		// in a bounded loop until the replaced proxy disappears from the
+		// account — then the local DB reliably reflects the new proxy. Rebuild
+		// routing afterwards (prunes the now-deleted old upstream + tears down
+		// its connections).
+		if !in.DryRun {
+			var lastSyncErr error
+			for attempt := 0; attempt < 6; attempt++ {
+				if attempt > 0 {
+					time.Sleep(time.Second)
+				}
+				if lastSyncErr = syncSvc.SyncKey(ctx, *up.SourceApiKeyID); lastSyncErr != nil {
+					continue
+				}
+				if _, gerr := repo.GetUpstream(ctx, db, upstreamID); errors.Is(gerr, repo.ErrNotFound) {
+					break // old proxy gone → the replacement is reflected locally
+				}
+			}
+			if lastSyncErr != nil {
+				fmt.Fprintf(deps.Stderr, "replace: re-sync after replace failed: %v\n", lastSyncErr)
+			}
+			_ = core.RebuildAfterSync(ctx, func(u, oldUp string) {
+				reg.CloseByUserUpstream(u, oldUp)
+				hub.Broadcast("mapping_broken", map[string]any{"username": u, "old_upstream_id": oldUp})
+			})
+			_ = repo.AuditLog(ctx, db, "ui", "proxy_replace",
+				fmt.Sprintf(`{"upstream_id":%q,"replace_with":%q}`, upstreamID, in.ReplaceWith))
+			hub.Broadcast("proxy_replaced", map[string]any{"upstream_id": upstreamID})
+		}
+		return &api.ReplaceUpstreamResult{
+			DryRun:         res.DryRun,
+			State:          res.State,
+			ProxiesRemoved: res.ProxiesRemoved,
+			ProxiesAdded:   res.ProxiesAdded,
+		}, nil
+	}
+	apiSrv.Deps().WebshareReplaceOptions = func(ctx context.Context, keyID int64) (*api.ReplaceOptions, error) {
+		cfg, err := syncSvc.WebshareConfig(ctx, keyID)
+		if err != nil {
+			return nil, err
+		}
+		out := &api.ReplaceOptions{}
+		for cc, n := range cfg.AvailableCountries {
+			out.Countries = append(out.Countries, api.ReplaceOptionCountry{Code: cc, Available: n})
+		}
+		sort.Slice(out.Countries, func(i, j int) bool { return out.Countries[i].Code < out.Countries[j].Code })
+		for _, a := range cfg.AvailableASNs {
+			out.ASNs = append(out.ASNs, api.ReplaceOptionASN{Number: a.Number, Name: a.Name, Available: a.Available})
+		}
+		return out, nil
 	}
 
 	signals := make(chan os.Signal, 1)

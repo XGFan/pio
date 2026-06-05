@@ -24,6 +24,8 @@ const upstreamPasswordAAD = "upstream_proxies.encrypted_password"
 // real implementation is the webshare package; tests supply a fake.
 type Fetcher interface {
 	ListProxies(ctx context.Context) ([]webshare.Proxy, error)
+	GetConfig(ctx context.Context) (*webshare.Config, error)
+	Replace(ctx context.Context, req webshare.ReplaceRequest) (*webshare.ReplaceResult, error)
 }
 
 // FetcherFactory builds a Fetcher from a decrypted API key. Production
@@ -184,6 +186,33 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 		return fmt.Errorf("commit: %w", err)
 	}
 	return nil
+}
+
+// ReplaceByIP replaces the single webshare proxy with the given IP under
+// keyID, sourcing the new proxy from rw (a country or ASN). With dryRun=true
+// the Webshare API only simulates (no quota, no swap) and still reports the
+// removed/added counts. The caller is responsible for re-syncing the key
+// afterwards (and rebuilding routing) so the local DB reflects the change.
+func (s *Service) ReplaceByIP(ctx context.Context, keyID int64, ip string, rw webshare.ReplaceWith, dryRun bool) (*webshare.ReplaceResult, error) {
+	plain, _, err := repo.GetApiKeyPlain(ctx, s.db, s.masterKey, keyID)
+	if err != nil {
+		return nil, fmt.Errorf("load api key %d: %w", keyID, err)
+	}
+	return s.newFetcher(plain).Replace(ctx, webshare.ReplaceRequest{
+		ToReplace:   webshare.ReplaceTarget{Type: "ip_address", IPAddresses: []string{ip}},
+		ReplaceWith: []webshare.ReplaceWith{rw},
+		DryRun:      dryRun,
+	})
+}
+
+// WebshareConfig returns the account's available countries/ASNs (for the
+// replacement UI's dropdowns) for the given key.
+func (s *Service) WebshareConfig(ctx context.Context, keyID int64) (*webshare.Config, error) {
+	plain, _, err := repo.GetApiKeyPlain(ctx, s.db, s.masterKey, keyID)
+	if err != nil {
+		return nil, fmt.Errorf("load api key %d: %w", keyID, err)
+	}
+	return s.newFetcher(plain).GetConfig(ctx)
 }
 
 type existingUpstream struct {

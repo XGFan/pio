@@ -431,6 +431,7 @@ function renderUpstreams(rows) {
       el('div', {}, 'Display Name'),
       el('div', { class: 'col-host' }, 'Node Address'),
       el('div', {}, 'Alive'),
+      el('div', {}, 'Actions'),
     ),
     ...rows.map((u) =>
       el('div', { class: 'upstream-row' },
@@ -440,9 +441,149 @@ function renderUpstreams(rows) {
         u.alive
           ? el('div', { class: 'alive-yes' }, '✓')
           : el('div', { class: 'alive-no' }, '✗'),
+        el('div', {},
+          el('button', { class: 'icon', title: 'Replace proxy', onclick: () => openReplaceProxyModal(u) }, '⇄'),
+        ),
       ),
     ),
   );
+}
+
+function openReplaceProxyModal(u) {
+  const root = document.getElementById('modal-root');
+  root.innerHTML = '';
+
+  const resultEl = el('div', { class: 'banner', style: 'display:none' });
+  const proxySelectEl = el('select', {});
+  proxySelectEl.style.width = '100%';
+
+  const radioCountry = el('input', { type: 'radio', name: 'replacewith', value: 'country' });
+  radioCountry.checked = true;
+  const radioAsn = el('input', { type: 'radio', name: 'replacewith', value: 'asn' });
+
+  const previewBtn = el('button', {}, 'Preview');
+  const replaceBtn = el('button', { class: 'primary' }, 'Replace');
+
+  const close = () => { root.innerHTML = ''; };
+
+  const showResult = (msg, isError) => {
+    resultEl.textContent = msg;
+    resultEl.className = 'banner ' + (isError ? 'error' : 'note');
+    resultEl.style.display = '';
+  };
+
+  const setLoading = (loading) => {
+    previewBtn.disabled = loading;
+    replaceBtn.disabled = loading;
+  };
+
+  let opts = null;
+
+  const fillSelect = (mode) => {
+    proxySelectEl.innerHTML = '';
+    if (!opts) return;
+    if (mode === 'country') {
+      for (const c of opts.countries) {
+        const o = document.createElement('option');
+        o.value = c.code;
+        o.textContent = `${c.code} — ${c.available} available`;
+        if (c.code === u.country_code) o.selected = true;
+        proxySelectEl.appendChild(o);
+      }
+    } else {
+      for (const a of opts.asns) {
+        const o = document.createElement('option');
+        o.value = a.number;
+        o.textContent = `${a.name} (${a.number}) — ${a.available} available`;
+        proxySelectEl.appendChild(o);
+      }
+    }
+  };
+
+  const getMode = () => radioCountry.checked ? 'country' : 'asn';
+
+  const buildBody = (dryRun) => {
+    const mode = getMode();
+    if (mode === 'country') {
+      return { replace_with: 'country', country_code: proxySelectEl.value, dry_run: dryRun };
+    }
+    return { replace_with: 'asn', asn_numbers: [parseInt(proxySelectEl.value, 10)], dry_run: dryRun };
+  };
+
+  const doReplace = async (dryRun) => {
+    setLoading(true);
+    resultEl.style.display = 'none';
+    try {
+      const r = await apiPOST(`/api/v1/upstreams/${encodeURIComponent(u.id)}/replace`, buildBody(dryRun));
+      if (dryRun) {
+        showResult(`Would remove ${r.proxies_removed}, add ${r.proxies_added}`, false);
+        setLoading(false);
+      } else {
+        close();
+        await refreshAll();
+      }
+    } catch (e) {
+      const msg = (e.data && e.data.error) ? e.data.error : e.message;
+      showResult(msg, true);
+      setLoading(false);
+    }
+  };
+
+  radioCountry.addEventListener('change', () => fillSelect('country'));
+  radioAsn.addEventListener('change', () => fillSelect('asn'));
+  previewBtn.addEventListener('click', () => doReplace(true));
+  replaceBtn.addEventListener('click', () => doReplace(false));
+
+  const modal = el('div', { class: 'modal' },
+    el('h3', {}, `Replace ${u.display_name}`),
+    el('div', { class: 'field' },
+      el('label', {}, 'Current proxy'),
+      el('div', {},
+        el('span', { class: 'mono' }, `${u.host}:${u.port}`),
+        ' ',
+        el('span', { class: 'muted' }, u.country_code || '—'),
+      ),
+    ),
+    el('div', { class: 'field' },
+      el('label', {}, 'Replace with'),
+      el('div', { class: 'row', style: 'gap:16px' },
+        el('label', { class: 'checkbox-row' }, radioCountry, 'Country'),
+        el('label', { class: 'checkbox-row' }, radioAsn, 'ASN'),
+      ),
+    ),
+    el('div', { class: 'field' },
+      el('label', {}, 'Selection'),
+      proxySelectEl,
+    ),
+    resultEl,
+    el('div', { class: 'buttons' },
+      el('button', { onclick: close }, 'Cancel'),
+      previewBtn,
+      replaceBtn,
+    ),
+  );
+
+  setLoading(true);
+  proxySelectEl.disabled = true;
+
+  root.appendChild(
+    el('div', { class: 'modal-backdrop', onclick: (e) => { if (e.target.classList.contains('modal-backdrop')) close(); } },
+      modal,
+    ),
+  );
+
+  apiGET('/api/v1/keys/' + u.source_api_key_id + '/replace-options')
+    .then((data) => {
+      opts = data;
+      proxySelectEl.disabled = false;
+      fillSelect(getMode());
+      setLoading(false);
+    })
+    .catch((e) => {
+      const msg = (e.data && e.data.error) ? e.data.error : e.message;
+      showResult('Failed to load options: ' + msg, true);
+      proxySelectEl.disabled = true;
+    });
 }
 
 function renderUsers() {

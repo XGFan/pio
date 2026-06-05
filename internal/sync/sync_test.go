@@ -24,6 +24,13 @@ type fakeFetcher struct {
 	proxies []webshare.Proxy
 	err     error
 	calls   int
+
+	// replacement seams
+	config       *webshare.Config
+	replaceResp  *webshare.ReplaceResult
+	replaceErr   error
+	lastReplace  webshare.ReplaceRequest
+	replaceCalls int
 }
 
 func (f *fakeFetcher) ListProxies(ctx context.Context) ([]webshare.Proxy, error) {
@@ -32,6 +39,25 @@ func (f *fakeFetcher) ListProxies(ctx context.Context) ([]webshare.Proxy, error)
 		return nil, f.err
 	}
 	return f.proxies, nil
+}
+
+func (f *fakeFetcher) GetConfig(ctx context.Context) (*webshare.Config, error) {
+	if f.config == nil {
+		return &webshare.Config{}, nil
+	}
+	return f.config, nil
+}
+
+func (f *fakeFetcher) Replace(ctx context.Context, req webshare.ReplaceRequest) (*webshare.ReplaceResult, error) {
+	f.replaceCalls++
+	f.lastReplace = req
+	if f.replaceErr != nil {
+		return nil, f.replaceErr
+	}
+	if f.replaceResp != nil {
+		return f.replaceResp, nil
+	}
+	return &webshare.ReplaceResult{State: "completed", DryRun: req.DryRun, ProxiesRemoved: 1, ProxiesAdded: 1}, nil
 }
 
 type fixture struct {
@@ -232,6 +258,48 @@ func TestSyncDeleteUnmapsLocalUser(t *testing.T) {
 	}
 	if u.UpstreamProxyID != nil {
 		t.Errorf("expected mapping cleared (NULL) after upstream deleted, got %q", *u.UpstreamProxyID)
+	}
+}
+
+func TestReplaceByIP_BuildsIPAddressTarget(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+
+	res, err := fx.svc.ReplaceByIP(ctx, fx.keyID, "82.22.69.206",
+		webshare.ReplaceWith{Type: "country", CountryCode: "JP"}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fx.fetcher.replaceCalls != 1 {
+		t.Fatalf("Replace called %d times, want 1", fx.fetcher.replaceCalls)
+	}
+	req := fx.fetcher.lastReplace
+	if req.ToReplace.Type != "ip_address" || len(req.ToReplace.IPAddresses) != 1 || req.ToReplace.IPAddresses[0] != "82.22.69.206" {
+		t.Errorf("to_replace = %+v, want ip_address [82.22.69.206]", req.ToReplace)
+	}
+	if len(req.ReplaceWith) != 1 || req.ReplaceWith[0].CountryCode != "JP" {
+		t.Errorf("replace_with = %+v, want country JP", req.ReplaceWith)
+	}
+	if !req.DryRun {
+		t.Error("dry_run should propagate")
+	}
+	if res == nil || res.ProxiesAdded != 1 {
+		t.Errorf("result = %+v", res)
+	}
+}
+
+func TestWebshareConfig_ReturnsFetcherConfig(t *testing.T) {
+	fx := newFixture(t)
+	fx.fetcher.config = &webshare.Config{
+		AvailableCountries: map[string]int{"JP": 757},
+		AvailableASNs:      []webshare.ASN{{Number: 3356, Name: "Level3", Available: 1510}},
+	}
+	cfg, err := fx.svc.WebshareConfig(context.Background(), fx.keyID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.AvailableCountries["JP"] != 757 || len(cfg.AvailableASNs) != 1 {
+		t.Errorf("config not passed through: %+v", cfg)
 	}
 }
 
