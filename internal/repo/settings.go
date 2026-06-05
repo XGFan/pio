@@ -17,13 +17,15 @@ const universalProxyPasswordAAD = "settings.universal_proxy_password_enc"
 func LoadSettings(ctx context.Context, db *sql.DB) (model.Settings, error) {
 	var s model.Settings
 	var enabled int
+	var subEnabled int
 	err := db.QueryRowContext(ctx, `
-		SELECT sync_interval_minutes, http_listener_port, http_listener_bind,
-		       socks5_listener_port, socks5_listener_bind, api_port, proxy_enabled
+		SELECT sync_interval_minutes, proxy_port, proxy_bind, api_port, proxy_enabled,
+		       subscription_enabled, subscription_host
 		  FROM settings WHERE id = 1`,
-	).Scan(&s.SyncIntervalMinutes, &s.HTTPListenerPort, &s.HTTPListenerBind,
-		&s.SOCKS5ListenerPort, &s.SOCKS5ListenerBind, &s.APIPort, &enabled)
+	).Scan(&s.SyncIntervalMinutes, &s.ProxyPort, &s.ProxyBind, &s.APIPort, &enabled,
+		&subEnabled, &s.SubscriptionHost)
 	s.ProxyEnabled = enabled != 0
+	s.SubscriptionEnabled = subEnabled != 0
 	return s, err
 }
 
@@ -33,13 +35,17 @@ func UpdateSettings(ctx context.Context, db *sql.DB, s model.Settings) error {
 	if s.ProxyEnabled {
 		enabled = 1
 	}
+	subEnabled := 0
+	if s.SubscriptionEnabled {
+		subEnabled = 1
+	}
 	_, err := db.ExecContext(ctx, `
 		UPDATE settings
-		   SET sync_interval_minutes = ?, http_listener_port = ?, http_listener_bind = ?,
-		       socks5_listener_port = ?, socks5_listener_bind = ?, proxy_enabled = ?
+		   SET sync_interval_minutes = ?, proxy_port = ?, proxy_bind = ?, proxy_enabled = ?,
+		       subscription_enabled = ?, subscription_host = ?
 		 WHERE id = 1`,
-		s.SyncIntervalMinutes, s.HTTPListenerPort, s.HTTPListenerBind,
-		s.SOCKS5ListenerPort, s.SOCKS5ListenerBind, enabled,
+		s.SyncIntervalMinutes, s.ProxyPort, s.ProxyBind, enabled,
+		subEnabled, s.SubscriptionHost,
 	)
 	return err
 }

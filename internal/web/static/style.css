@@ -190,6 +190,9 @@ main#app { max-width: 1100px; margin: 0 auto; padding: 24px 20px 64px; }
 
 /* --- Sections / cards --- */
 
+.config-row { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.config-row > section { margin-bottom: 0; }
+
 section { margin-bottom: 24px; }
 section h2 {
   font-size: 14px; font-weight: 600; text-transform: uppercase;

@@ -53,9 +53,7 @@ spec:
           ports:
             - name: http
               containerPort: 9090
-            - name: socks5
-              containerPort: 1080
-            - name: httpproxy
+            - name: proxy
               containerPort: 8080
           env:
             - name: WEBSHARE_WEB_PASSWORD
@@ -99,10 +97,10 @@ spec:
     - port: 80
       targetPort: 9090
 ---
-# 通过 MetalLB 把 SOCKS5 / HTTP proxy 暴露到 LAN。
+# 通过 MetalLB 把代理暴露到 LAN。
 # IP 192.168.2.241 取自 lan-pool (240-250)，不与 Traefik (.231) /
-# 数据库 (.240) 冲突。LAN 客户端用 192.168.2.241:1080 (socks5) 或
-# 192.168.2.241:8080 (http) 接入；UI 仍然走 https://webshare.test4x.com。
+# 数据库 (.240) 冲突。LAN 客户端统一使用 192.168.2.241:8080 接入（HTTP 与
+# SOCKS5 协议自动识别）；UI 仍然走 https://webshare.test4x.com。
 apiVersion: v1
 kind: Service
 metadata:
@@ -115,11 +113,7 @@ spec:
   selector:
     app: webshare
   ports:
-    - name: socks5
-      protocol: TCP
-      port: 1080
-      targetPort: 1080
-    - name: httpproxy
+    - name: proxy
       protocol: TCP
       port: 8080
       targetPort: 8080

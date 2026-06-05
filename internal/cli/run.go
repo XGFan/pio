@@ -64,8 +64,7 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	// set, they win over the persisted values and are written back to the
 	// DB so the web UI reflects the actual listener state.
 	if v := os.Getenv("WEBSHARE_PROXY_BIND"); v != "" {
-		settings.HTTPListenerBind = v
-		settings.SOCKS5ListenerBind = v
+		settings.ProxyBind = v
 	}
 	if v := os.Getenv("WEBSHARE_PROXY_AUTOSTART"); v == "true" || v == "1" {
 		settings.ProxyEnabled = true
@@ -85,16 +84,12 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	defer hub.Close()
 	denyList := auth.New(nil)
 
-	// LAN bind warnings (US-019 spec). Single stderr line per non-loopback bind.
-	for _, b := range []struct{ proto, bind string; port int }{
-		{"http", settings.HTTPListenerBind, settings.HTTPListenerPort},
-		{"socks5", settings.SOCKS5ListenerBind, settings.SOCKS5ListenerPort},
-	} {
-		if !isLoopback(b.bind) {
-			fmt.Fprintf(deps.Stderr,
-				"WARNING: %s listener bound to %s:%d is reachable from LAN; clients on the LAN can use this proxy if they have valid credentials.\n",
-				b.proto, b.bind, b.port)
-		}
+	// LAN bind warning (US-019 spec). One stderr line when the unified proxy
+	// port is bound to a non-loopback address.
+	if !isLoopback(settings.ProxyBind) {
+		fmt.Fprintf(deps.Stderr,
+			"WARNING: proxy listener bound to %s:%d is reachable from LAN; clients on the LAN can use this HTTP/SOCKS5 proxy if they have valid credentials.\n",
+			settings.ProxyBind, settings.ProxyPort)
 	}
 
 	// Listener set: state machine for the HTTP+SOCKS5 listeners. The
@@ -152,15 +147,14 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	// but NOT fatal — the daemon keeps the REST surface up so the UI can
 	// show the error and let the user pick a different port.
 	if settings.ProxyEnabled {
-		if err := lset.Start(runCtx, settings.HTTPListenerBind, settings.HTTPListenerPort,
-			settings.SOCKS5ListenerBind, settings.SOCKS5ListenerPort); err != nil {
+		if err := lset.Start(runCtx, settings.ProxyBind, settings.ProxyPort); err != nil {
 			fmt.Fprintf(deps.Stderr, "startup proxy bind failed (proxy stays stopped): %v\n", err)
 		}
 	}
 
-	running, httpAddr, socksAddr := lset.Status()
-	fmt.Fprintf(deps.Stdout, "webshare-proxyd run: api=127.0.0.1:%d  proxy_running=%v  http=%s  socks5=%s\n",
-		port, running, httpAddr, socksAddr)
+	running, proxyAddr := lset.Status()
+	fmt.Fprintf(deps.Stdout, "webshare-proxyd run: api=127.0.0.1:%d  proxy_running=%v  proxy=%s\n",
+		port, running, proxyAddr)
 
 	apiSrv.Deps().ShutdownFn = cancelAll
 	apiSrv.Deps().ReconfigureListeners = func() error {
@@ -168,16 +162,14 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 		if err != nil {
 			return err
 		}
-		return lset.Reconfigure(runCtx, latest.HTTPListenerBind, latest.HTTPListenerPort,
-			latest.SOCKS5ListenerBind, latest.SOCKS5ListenerPort)
+		return lset.Reconfigure(runCtx, latest.ProxyBind, latest.ProxyPort)
 	}
 	apiSrv.Deps().StartProxy = func() error {
 		latest, err := repo.LoadSettings(context.Background(), db)
 		if err != nil {
 			return err
 		}
-		if err := lset.Start(runCtx, latest.HTTPListenerBind, latest.HTTPListenerPort,
-			latest.SOCKS5ListenerBind, latest.SOCKS5ListenerPort); err != nil {
+		if err := lset.Start(runCtx, latest.ProxyBind, latest.ProxyPort); err != nil {
 			return err
 		}
 		return repo.SetProxyEnabled(context.Background(), db, true)
@@ -186,7 +178,7 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 		lset.Stop()
 		return repo.SetProxyEnabled(context.Background(), db, false)
 	}
-	apiSrv.Deps().ProxyStatus = func() (bool, string, string) {
+	apiSrv.Deps().ProxyStatus = func() (bool, string) {
 		return lset.Status()
 	}
 
@@ -207,9 +199,10 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	// listener and a partial bring-up would be confusing.
 	if *webBind != "" {
 		webSrv, err := web.New(web.Options{
-			Bind:       *webBind,
-			Password:   *webPassword,
-			APIHandler: apiSrv.Handler(),
+			Bind:                *webBind,
+			Password:            *webPassword,
+			APIHandler:          apiSrv.Handler(),
+			SubscriptionHandler: apiSrv.SubscriptionHandler(),
 		})
 		if err != nil {
 			fmt.Fprintf(deps.Stderr, "web: %v\n", err)

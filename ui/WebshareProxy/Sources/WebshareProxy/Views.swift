@@ -97,13 +97,8 @@ struct ProxySourcesView: View {
                     .frame(width: 120).labelsHidden()
                 }
                 HStack {
-                    Text("SOCKS5:").font(.subheadline)
-                    TextField("Port", value: $state.settings.socks5ListenerPort, format: .number.grouping(.never))
-                        .frame(width: 70)
-                }
-                HStack {
-                    Text("HTTP:").font(.subheadline)
-                    TextField("Port", value: $state.settings.httpListenerPort, format: .number.grouping(.never))
+                    Text("Proxy port:").font(.subheadline)
+                    TextField("Port", value: $state.settings.proxyPort, format: .number.grouping(.never))
                         .frame(width: 70)
                 }
                 HStack {
@@ -167,16 +162,11 @@ struct ProxySourcesView: View {
         }
     }
 
-    // Single bind Picker drives both HTTP and SOCKS5 listeners. They are
-    // distinct fields in the model so the daemon stays flexible, but in the
-    // UI we expose one knob — the common case is "loopback for all" or
-    // "0.0.0.0 for all" and split binds are a power-user concern.
     private var sharedBind: Binding<String> {
         Binding(
-            get: { state.settings.httpListenerBind },
+            get: { state.settings.proxyBind },
             set: { newValue in
-                state.settings.httpListenerBind = newValue
-                state.settings.socks5ListenerBind = newValue
+                state.settings.proxyBind = newValue
             }
         )
     }

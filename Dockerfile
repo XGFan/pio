@@ -29,6 +29,7 @@ RUN mkdir -p /data && chown -R appuser:appgroup /app /data
 USER appuser
 
 EXPOSE 9090
+EXPOSE 8080
 
 ENTRYPOINT ["/app/webshare-proxyd"]
 CMD ["run", "--data-dir", "/data", "--web-bind", "0.0.0.0:9090"]

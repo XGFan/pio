@@ -49,7 +49,7 @@ type Deps struct {
 	// depend on listener internals.
 	StartProxy  func() error
 	StopProxy   func() error
-	ProxyStatus func() (running bool, httpAddr string, socksAddr string)
+	ProxyStatus func() (running bool, proxyAddr string)
 	// ShutdownFn is called by POST /api/v1/shutdown.
 	ShutdownFn   func()
 	// PasswordPeek is rate-limited (1/sec/IP) by the server itself.
@@ -159,6 +159,12 @@ func (s *Server) mountRoutes(r chi.Router) {
 	r.Get("/api/v1/settings", s.getSettings)
 	r.Put("/api/v1/settings", s.putSettings)
 	r.Put("/api/v1/settings/universal-password", s.putUniversalPassword)
+	r.Get("/api/v1/subscription-url", s.subscriptionURLHandler)
+
+	// Public (query-param-auth only) subscription endpoint. Mounted here so it
+	// works on the loopback API server; the LAN web server mounts the same
+	// handler OUTSIDE its cookie auth via Server.SubscriptionHandler().
+	r.Get("/subscription", s.subscriptionHandler)
 
 	r.Get("/api/v1/proxy/status", s.proxyStatusHandler)
 	r.Post("/api/v1/proxy/start", s.proxyStartHandler)
@@ -612,11 +618,14 @@ func (s *Server) peekPassword(w http.ResponseWriter, r *http.Request) {
 // emit PascalCase field names.
 type settingsDTO struct {
 	SyncIntervalMinutes int    `json:"sync_interval_minutes"`
-	HTTPListenerPort    int    `json:"http_listener_port"`
-	HTTPListenerBind    string `json:"http_listener_bind"`
-	SOCKS5ListenerPort  int    `json:"socks5_listener_port"`
-	SOCKS5ListenerBind  string `json:"socks5_listener_bind"`
-	ProxyEnabled        bool   `json:"proxy_enabled"`
+	// ProxyPort / ProxyBind configure the single unified proxy listener that
+	// serves both HTTP and SOCKS5 on one port.
+	ProxyPort    int    `json:"proxy_port"`
+	ProxyBind    string `json:"proxy_bind"`
+	ProxyEnabled bool   `json:"proxy_enabled"`
+	// Subscription controls the public /subscription endpoint.
+	SubscriptionEnabled bool   `json:"subscription_enabled"`
+	SubscriptionHost    string `json:"subscription_host"`
 	// UniversalProxyPasswordSet is read-only (GET): whether a universal proxy
 	// password is configured. The value itself is never returned. Set/clear it
 	// via PUT /api/v1/settings/universal-password.
@@ -636,11 +645,11 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, settingsDTO{
 		SyncIntervalMinutes:       st.SyncIntervalMinutes,
-		HTTPListenerPort:          st.HTTPListenerPort,
-		HTTPListenerBind:          st.HTTPListenerBind,
-		SOCKS5ListenerPort:        st.SOCKS5ListenerPort,
-		SOCKS5ListenerBind:        st.SOCKS5ListenerBind,
+		ProxyPort:                 st.ProxyPort,
+		ProxyBind:                 st.ProxyBind,
 		ProxyEnabled:              st.ProxyEnabled,
+		SubscriptionEnabled:       st.SubscriptionEnabled,
+		SubscriptionHost:          st.SubscriptionHost,
 		UniversalProxyPasswordSet: hasUniversal,
 	})
 }
@@ -688,10 +697,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	// by "新端口被占用 → 旧端口不释放".
 	prev := cur
 	cur.SyncIntervalMinutes = st.SyncIntervalMinutes
-	cur.HTTPListenerPort = st.HTTPListenerPort
-	cur.HTTPListenerBind = st.HTTPListenerBind
-	cur.SOCKS5ListenerPort = st.SOCKS5ListenerPort
-	cur.SOCKS5ListenerBind = st.SOCKS5ListenerBind
+	cur.ProxyPort = st.ProxyPort
+	cur.ProxyBind = st.ProxyBind
+	cur.SubscriptionEnabled = st.SubscriptionEnabled
+	cur.SubscriptionHost = st.SubscriptionHost
 	// proxy_enabled is intentionally not honored here — flip it via
 	// /proxy/start or /proxy/stop so the listener state machine stays the
 	// single point of authority.
@@ -720,11 +729,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, settingsDTO{
 		SyncIntervalMinutes:       cur.SyncIntervalMinutes,
-		HTTPListenerPort:          cur.HTTPListenerPort,
-		HTTPListenerBind:          cur.HTTPListenerBind,
-		SOCKS5ListenerPort:        cur.SOCKS5ListenerPort,
-		SOCKS5ListenerBind:        cur.SOCKS5ListenerBind,
+		ProxyPort:                 cur.ProxyPort,
+		ProxyBind:                 cur.ProxyBind,
 		ProxyEnabled:              cur.ProxyEnabled,
+		SubscriptionEnabled:       cur.SubscriptionEnabled,
+		SubscriptionHost:          cur.SubscriptionHost,
 		UniversalProxyPasswordSet: hasUniversal,
 	})
 }
@@ -734,11 +743,10 @@ func (s *Server) proxyStatusHandler(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"running": false})
 		return
 	}
-	running, httpAddr, socksAddr := s.deps.ProxyStatus()
+	running, proxyAddr := s.deps.ProxyStatus()
 	writeJSON(w, 200, map[string]any{
 		"running":    running,
-		"http_addr":  httpAddr,
-		"socks_addr": socksAddr,
+		"proxy_addr": proxyAddr,
 	})
 }
 

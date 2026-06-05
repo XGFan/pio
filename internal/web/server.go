@@ -32,7 +32,12 @@ type Options struct {
 	Bind       string
 	Password   string
 	APIHandler http.Handler
-	Logger     *slog.Logger
+	// SubscriptionHandler, when non-nil, is mounted at GET /subscription
+	// OUTSIDE the cookie-auth middleware — it authenticates via its own
+	// ?password= query parameter only, so proxy clients can fetch it without
+	// a session. May be nil to disable the public route.
+	SubscriptionHandler http.Handler
+	Logger              *slog.Logger
 }
 
 // Server is the LAN-facing HTTP server.
@@ -111,6 +116,12 @@ func (s *Server) handler() http.Handler {
 	r.Post("/web/api/login", s.loginHandler)
 	r.Post("/web/api/logout", s.logoutHandler)
 	r.Get("/web/api/session", s.sessionStatusHandler)
+
+	// Public subscription endpoint: query-param auth only, no cookie. Mounted
+	// before the auth-gated API so proxy clients can fetch their node list.
+	if s.opts.SubscriptionHandler != nil {
+		r.Method(http.MethodGet, "/subscription", s.opts.SubscriptionHandler)
+	}
 
 	// /api/v1/* is forwarded to the embedded api handler behind auth.
 	r.With(s.requireAuthAPI).Handle("/api/v1/*", s.opts.APIHandler)

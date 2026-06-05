@@ -18,8 +18,7 @@ final class AppState: ObservableObject {
     @Published var users: [LocalUser] = []
     @Published var settings: Settings = Settings(
         syncIntervalMinutes: 60,
-        httpListenerPort: 8080, httpListenerBind: "127.0.0.1",
-        socks5ListenerPort: 1080, socks5ListenerBind: "127.0.0.1",
+        proxyPort: 8080, proxyBind: "127.0.0.1",
         proxyEnabled: true,
         universalProxyPasswordSet: false
     )
@@ -29,8 +28,7 @@ final class AppState: ObservableObject {
     // daemon-truth and so a port-conflict error can be shown inline (not as
     // a dialog).
     @Published var proxyRunning: Bool = false
-    @Published var proxyHTTPAddr: String = ""
-    @Published var proxySocksAddr: String = ""
+    @Published var proxyAddr: String = ""
     @Published var listenerError: String?
 
     func bootstrap() async {
@@ -63,8 +61,7 @@ final class AppState: ObservableObject {
         if let s = await s { self.settings = s }
         if let p = await p {
             self.proxyRunning = p.running
-            self.proxyHTTPAddr = p.httpAddr ?? ""
-            self.proxySocksAddr = p.socksAddr ?? ""
+            self.proxyAddr = p.proxyAddr ?? ""
         }
     }
 

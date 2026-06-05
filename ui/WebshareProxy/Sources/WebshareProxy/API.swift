@@ -107,10 +107,8 @@ struct LocalUser: Codable, Identifiable, Hashable {
 
 struct Settings: Codable {
     var syncIntervalMinutes: Int
-    var httpListenerPort: Int
-    var httpListenerBind: String
-    var socks5ListenerPort: Int
-    var socks5ListenerBind: String
+    var proxyPort: Int
+    var proxyBind: String
     var proxyEnabled: Bool
     // Read-only indicator returned by GET /api/v1/settings. Older daemons
     // that don't include this field decode to false via the custom init below.
@@ -118,10 +116,8 @@ struct Settings: Codable {
 
     enum CodingKeys: String, CodingKey {
         case syncIntervalMinutes = "sync_interval_minutes"
-        case httpListenerPort = "http_listener_port"
-        case httpListenerBind = "http_listener_bind"
-        case socks5ListenerPort = "socks5_listener_port"
-        case socks5ListenerBind = "socks5_listener_bind"
+        case proxyPort = "proxy_port"
+        case proxyBind = "proxy_bind"
         case proxyEnabled = "proxy_enabled"
         case universalProxyPasswordSet = "universal_proxy_password_set"
     }
@@ -131,22 +127,17 @@ struct Settings: Codable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         self.syncIntervalMinutes = try c.decode(Int.self, forKey: .syncIntervalMinutes)
-        self.httpListenerPort = try c.decode(Int.self, forKey: .httpListenerPort)
-        self.httpListenerBind = try c.decode(String.self, forKey: .httpListenerBind)
-        self.socks5ListenerPort = try c.decode(Int.self, forKey: .socks5ListenerPort)
-        self.socks5ListenerBind = try c.decode(String.self, forKey: .socks5ListenerBind)
+        self.proxyPort = try c.decode(Int.self, forKey: .proxyPort)
+        self.proxyBind = try c.decode(String.self, forKey: .proxyBind)
         self.proxyEnabled = try c.decode(Bool.self, forKey: .proxyEnabled)
         self.universalProxyPasswordSet = (try? c.decodeIfPresent(Bool.self, forKey: .universalProxyPasswordSet)) ?? false
     }
 
-    init(syncIntervalMinutes: Int, httpListenerPort: Int, httpListenerBind: String,
-         socks5ListenerPort: Int, socks5ListenerBind: String, proxyEnabled: Bool,
-         universalProxyPasswordSet: Bool = false) {
+    init(syncIntervalMinutes: Int, proxyPort: Int, proxyBind: String,
+         proxyEnabled: Bool, universalProxyPasswordSet: Bool = false) {
         self.syncIntervalMinutes = syncIntervalMinutes
-        self.httpListenerPort = httpListenerPort
-        self.httpListenerBind = httpListenerBind
-        self.socks5ListenerPort = socks5ListenerPort
-        self.socks5ListenerBind = socks5ListenerBind
+        self.proxyPort = proxyPort
+        self.proxyBind = proxyBind
         self.proxyEnabled = proxyEnabled
         self.universalProxyPasswordSet = universalProxyPasswordSet
     }
@@ -154,13 +145,11 @@ struct Settings: Codable {
 
 struct ProxyStatus: Codable {
     let running: Bool
-    let httpAddr: String?
-    let socksAddr: String?
+    let proxyAddr: String?
 
     enum CodingKeys: String, CodingKey {
         case running
-        case httpAddr = "http_addr"
-        case socksAddr = "socks_addr"
+        case proxyAddr = "proxy_addr"
     }
 }
 

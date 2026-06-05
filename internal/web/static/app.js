@@ -16,7 +16,7 @@ const state = {
   manualProxies: [],
   users: [],
   settings: null,
-  proxy: { running: false, http_addr: '', socks_addr: '' },
+  proxy: { running: false, proxy_addr: '' },
   revealedPasswords: {}, // username -> {plaintext, timerId}
   listenerError: '',
 };
@@ -92,7 +92,8 @@ function render() {
 
 function renderSources() {
   $app.innerHTML = '';
-  $app.appendChild(systemSection());
+  const cfgRow = el('div', { class: 'config-row' }, systemSection(), subscriptionSection());
+  $app.appendChild(cfgRow);
   $app.appendChild(webshareSection());
   $app.appendChild(manualProxiesSection());
 }
@@ -238,14 +239,14 @@ function openManualProxyModal(existing) {
 function systemSection() {
   const s = state.settings || {
     sync_interval_minutes: 60,
-    http_listener_port: 8080,
-    http_listener_bind: '127.0.0.1',
-    socks5_listener_port: 1080,
-    socks5_listener_bind: '127.0.0.1',
+    proxy_port: 8080,
+    proxy_bind: '127.0.0.1',
     proxy_enabled: false,
     universal_proxy_password_set: false,
+    subscription_enabled: false,
+    subscription_host: '',
   };
-  const section = el('section', {},
+  const section = el('section', { style: 'flex:1; min-width:320px' },
     el('h2', {},
       'System',
       el('span', { class: 'status-pill' },
@@ -262,21 +263,17 @@ function systemSection() {
     card(
       el('div', { class: 'row' },
         field('Listen addr', selectEl(
-          { onchange: (e) => { s.http_listener_bind = e.target.value; s.socks5_listener_bind = e.target.value; } },
+          { onchange: (e) => { s.proxy_bind = e.target.value; } },
           [
             { value: '127.0.0.1', label: '127.0.0.1' },
             { value: '0.0.0.0', label: '0.0.0.0' },
             { value: '[::1]', label: '[::1]' },
           ],
-          s.http_listener_bind,
+          s.proxy_bind,
         )),
-        field('SOCKS5 port', inputEl({
-          type: 'number', value: s.socks5_listener_port, style: 'width:90px',
-          oninput: (e) => { s.socks5_listener_port = parseInt(e.target.value || '0', 10); },
-        })),
-        field('HTTP port', inputEl({
-          type: 'number', value: s.http_listener_port, style: 'width:90px',
-          oninput: (e) => { s.http_listener_port = parseInt(e.target.value || '0', 10); },
+        field('Mixed Port', inputEl({
+          type: 'number', value: s.proxy_port, style: 'width:90px',
+          oninput: (e) => { s.proxy_port = parseInt(e.target.value || '0', 10); },
         })),
         field('Sync (min)', inputEl({
           type: 'number', value: s.sync_interval_minutes, style: 'width:80px',
@@ -303,6 +300,76 @@ function systemSection() {
     ),
   );
   return section;
+}
+
+function subscriptionSection() {
+  const s = state.settings || {
+    sync_interval_minutes: 60,
+    proxy_port: 8080,
+    proxy_bind: '127.0.0.1',
+    proxy_enabled: false,
+    universal_proxy_password_set: false,
+    subscription_enabled: false,
+    subscription_host: '',
+  };
+  return el('section', { style: 'flex:1; min-width:320px' },
+    el('h2', {}, 'Subscription'),
+    card(
+      el('div', { class: 'row' },
+        field('Enable subscription', inputEl({
+          type: 'checkbox',
+          checked: s.subscription_enabled ? '' : null,
+          onchange: (e) => { s.subscription_enabled = e.target.checked; },
+        })),
+      ),
+      el('div', { class: 'row' },
+        field('Subscription host', inputEl({
+          value: s.subscription_host,
+          placeholder: 'ip or domain (e.g. proxy.example.com)',
+          style: 'min-width:220px',
+          oninput: (e) => { s.subscription_host = e.target.value; },
+        })),
+      ),
+      !s.universal_proxy_password_set
+        ? el('div', { class: 'banner error' }, 'Set a universal password (left) to enable the subscription endpoint.')
+        : null,
+      el('div', { class: 'row' },
+        el('button', { onclick: () => copySubscriptionURL() }, 'Copy subscription URL'),
+        el('div', { class: 'grow' }),
+        el('button', { class: 'primary', onclick: () => applySettings(s) }, 'Apply'),
+      ),
+    ),
+  );
+}
+
+async function copySubscriptionURL() {
+  try {
+    const r = await apiGET('/api/v1/subscription-url');
+    if (!r || !r.enabled || !r.url) {
+      alert('Subscription is not active. Enable it and set a universal password first, then Apply.');
+      return;
+    }
+    await copyText(r.url);
+  } catch (e) { alert('Copy failed: ' + e.message); }
+}
+
+async function copyText(text) {
+  if (navigator.clipboard && navigator.clipboard.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch (_) {}
+  }
+  // Fallback for plain-http LAN contexts where async clipboard API is blocked.
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed';
+  ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.focus();
+  ta.select();
+  document.execCommand('copy');
+  document.body.removeChild(ta);
 }
 
 function webshareSection() {
@@ -446,11 +513,10 @@ async function applySettings(s) {
     state.listenerError = '';
     await apiPUT('/api/v1/settings', {
       sync_interval_minutes: s.sync_interval_minutes,
-      http_listener_port: s.http_listener_port,
-      http_listener_bind: s.http_listener_bind,
-      socks5_listener_port: s.socks5_listener_port,
-      socks5_listener_bind: s.socks5_listener_bind,
-      proxy_enabled: s.proxy_enabled,
+      proxy_port: s.proxy_port,
+      proxy_bind: s.proxy_bind,
+      subscription_enabled: s.subscription_enabled,
+      subscription_host: s.subscription_host,
     });
   } catch (e) {
     state.listenerError = e.message;

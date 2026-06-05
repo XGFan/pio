@@ -69,16 +69,24 @@ type LocalUser struct {
 // row in the settings table; the UI edits it in place.
 type Settings struct {
 	SyncIntervalMinutes int
-	HTTPListenerPort    int
-	HTTPListenerBind    string
-	SOCKS5ListenerPort  int
-	SOCKS5ListenerBind  string
-	APIPort             int
-	// ProxyEnabled is the user-controlled on/off switch for the HTTP+SOCKS5
-	// listeners. When false the listeners are unbound and the kernel sockets
-	// are released; the daemon itself stays running so the REST/UI surface
+	// ProxyPort / ProxyBind configure the single unified proxy listener that
+	// serves BOTH the HTTP forward proxy and SOCKS5 on one port (protocol is
+	// auto-detected per connection from the first byte). These replace the
+	// former separate http_listener_*/socks5_listener_* pair.
+	ProxyPort int
+	ProxyBind string
+	APIPort   int
+	// ProxyEnabled is the user-controlled on/off switch for the unified proxy
+	// listener. When false the listener is unbound and the kernel socket is
+	// released; the daemon itself stays running so the REST/UI surface
 	// remains reachable.
 	ProxyEnabled bool
+	// SubscriptionEnabled gates the public GET /subscription endpoint. It only
+	// actually serves when both this is true AND a universal proxy password is
+	// configured. SubscriptionHost is the public ip/domain clients use to reach
+	// the unified proxy port; it fills the host portion of each generated line.
+	SubscriptionEnabled bool
+	SubscriptionHost    string
 }
 
 // AuditLogEntry records a state-changing operation. Detail is an opaque
