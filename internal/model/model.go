@@ -45,6 +45,11 @@ type UpstreamProxy struct {
 	RecentFailureCount int
 	RecentFailureSince *time.Time
 	LastSeenAt         time.Time
+	// LastLatencyMS is the last on-demand latency probe result through this
+	// proxy: nil = never tested, -1 = the probe failed, >=0 = milliseconds.
+	// LastLatencyAt is when that probe ran. Display-only; routing ignores them.
+	LastLatencyMS *int
+	LastLatencyAt *time.Time
 }
 
 // LocalUser is one (username, password) credential pair the daemon

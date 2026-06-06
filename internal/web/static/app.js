@@ -118,6 +118,7 @@ function renderManualProxiesTable() {
       el('td', { class: 'mono' }, `${p.host}:${p.port}`),
       el('td', {}, el('span', { class: 'proto-pill' }, (p.protocol || '').toUpperCase())),
       el('td', {}, p.username || el('span', { class: 'muted' }, '—')),
+      el('td', {}, latencyCell(p.last_latency_ms)),
       el('td', { class: 'actions' },
         el('div', { class: 'action-group' },
           el('button', { class: 'icon', title: 'Edit', onclick: () => openManualProxyModal(p) }, '✎'),
@@ -132,6 +133,7 @@ function renderManualProxiesTable() {
       el('th', {}, 'Host:Port'),
       el('th', {}, 'Protocol'),
       el('th', {}, 'Username'),
+      el('th', {}, 'Latency'),
       el('th', { class: 'actions' }, 'Actions'),
     )),
     tbody,
@@ -389,11 +391,27 @@ async function copyText(text) {
   document.body.removeChild(ta);
 }
 
+async function testLatency() {
+  const btns = document.querySelectorAll('.test-latency-btn');
+  btns.forEach(b => { b.disabled = true; b.textContent = 'Testing…'; });
+  try { await apiPOST('/api/v1/upstreams/test-latency'); }
+  catch (e) { alert('Latency test failed: ' + e.message); }
+  await refreshAll();
+}
+
+function latencyCell(ms) {
+  if (ms === undefined || ms === null) return el('span', { class: 'muted' }, '—');
+  if (ms < 0) return el('span', { class: 'lat-bad' }, 'failed');
+  const cls = ms < 300 ? 'lat-good' : ms < 800 ? 'lat-ok' : 'lat-bad';
+  return el('span', { class: cls }, ms + ' ms');
+}
+
 function webshareSection() {
   return el('section', {},
     el('h2', {},
       'Webshare',
       el('span', { style: 'flex:1' }),
+      el('button', { class: 'test-latency-btn icon', title: 'Test latency for all proxies', onclick: () => testLatency() }, '⏱'),
       el('button', { class: 'icon', title: 'Add API key', onclick: () => openAddKeyModal() }, '+'),
     ),
     state.keys.length === 0
@@ -431,6 +449,7 @@ function renderUpstreams(rows) {
       el('div', {}, 'Display Name'),
       el('div', { class: 'col-host' }, 'Node Address'),
       el('div', {}, 'Alive'),
+      el('div', {}, 'Latency'),
       el('div', {}, 'Actions'),
     ),
     ...rows.map((u) =>
@@ -441,6 +460,7 @@ function renderUpstreams(rows) {
         u.alive
           ? el('div', { class: 'alive-yes' }, '✓')
           : el('div', { class: 'alive-no' }, '✗'),
+        el('div', {}, latencyCell(u.last_latency_ms)),
         el('div', {},
           el('button', { class: 'icon', title: 'Replace proxy', onclick: () => openReplaceProxyModal(u) }, '⇄'),
         ),

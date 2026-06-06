@@ -144,6 +144,53 @@ func (m *Manager) DialHTTPUpstream(ctx context.Context, upstream *model.Upstream
 	return m.dialViaHTTPConnect(ctx, upstream, upstreamPassword, target)
 }
 
+// Latency-probe target: Google's generate_204 endpoint over plain HTTP. A
+// successful fetch returns 204 No Content, a tiny, fast response ideal for
+// latency measurement.
+const (
+	latencyTarget  = "www.gstatic.com:80"
+	latencyPath    = "/generate_204"
+	latencyTimeout = 10 * time.Second
+)
+
+// MeasureLatency fetches http://www.gstatic.com/generate_204 THROUGH the given
+// upstream proxy and returns the round-trip latency — proxy connect + CONNECT
+// handshake + the request→204, i.e. the latency a real request would see via
+// this proxy. A dial error, timeout, or non-2xx status returns an error.
+func (m *Manager) MeasureLatency(ctx context.Context, upstream *model.UpstreamProxy, password string) (time.Duration, error) {
+	ctx, cancel := context.WithTimeout(ctx, latencyTimeout)
+	defer cancel()
+
+	start := time.Now()
+	conn, err := m.DialUpstream(ctx, upstream, password, latencyTarget)
+	if err != nil {
+		return 0, err
+	}
+	defer conn.Close()
+	if dl, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(dl)
+	}
+
+	req := "GET " + latencyPath + " HTTP/1.1\r\n" +
+		"Host: www.gstatic.com\r\n" +
+		"User-Agent: webshare-proxy-latency\r\n" +
+		"Connection: close\r\n\r\n"
+	if _, err := io.WriteString(conn, req); err != nil {
+		return 0, fmt.Errorf("latency write: %w", err)
+	}
+
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		return 0, fmt.Errorf("latency read: %w", err)
+	}
+	latency := time.Since(start)
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return 0, fmt.Errorf("latency: unexpected status %d", resp.StatusCode)
+	}
+	return latency, nil
+}
+
 // dialViaHTTPConnect opens a TCP connection to upstream.Host:upstream.Port,
 // sends an HTTP CONNECT for target, and awaits the 200 response.
 func (m *Manager) dialViaHTTPConnect(ctx context.Context, upstream *model.UpstreamProxy, upstreamPassword, target string) (net.Conn, error) {

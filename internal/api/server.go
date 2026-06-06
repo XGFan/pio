@@ -59,6 +59,9 @@ type Deps struct {
 	ReplaceUpstream func(ctx context.Context, upstreamID string, in ReplaceUpstreamInput) (*ReplaceUpstreamResult, error)
 	// WebshareReplaceOptions returns the available countries/ASNs for a key.
 	WebshareReplaceOptions func(ctx context.Context, keyID int64) (*ReplaceOptions, error)
+	// TestAllLatency probes every upstream's latency (batched) and persists
+	// the results. Wired in cli/run.go.
+	TestAllLatency func(ctx context.Context) ([]LatencyResult, error)
 	// PasswordPeek is rate-limited (1/sec/IP) by the server itself.
 	now func() time.Time
 }
@@ -151,6 +154,7 @@ func (s *Server) mountRoutes(r chi.Router) {
 	r.Get("/api/v1/upstreams", s.listUpstreams)
 	r.Patch("/api/v1/upstreams/{id}", s.patchUpstream)
 	r.Post("/api/v1/upstreams/{id}/replace", s.replaceUpstream)
+	r.Post("/api/v1/upstreams/test-latency", s.testLatency)
 	r.Get("/api/v1/keys/{id}/replace-options", s.replaceOptions)
 
 	r.Get("/api/v1/manual-proxies", s.listManualProxies)
@@ -301,9 +305,13 @@ type upstreamDTO struct {
 	DisplayName     string    `json:"display_name"`
 	CountryCode     string    `json:"country_code"`
 	CityName        string    `json:"city_name,omitempty"`
-	Alive           bool      `json:"alive"`
-	RecentlyFailing bool      `json:"recently_failing"`
-	LastSeenAt      time.Time `json:"last_seen_at"`
+	Alive           bool       `json:"alive"`
+	RecentlyFailing bool       `json:"recently_failing"`
+	LastSeenAt      time.Time  `json:"last_seen_at"`
+	// LastLatencyMS: omitted when never tested, -1 when the last probe failed,
+	// >=0 milliseconds otherwise. LastLatencyAt is the probe time.
+	LastLatencyMS *int       `json:"last_latency_ms,omitempty"`
+	LastLatencyAt *time.Time `json:"last_latency_at,omitempty"`
 }
 
 func toUpstreamDTO(u model.UpstreamProxy) upstreamDTO {
@@ -312,7 +320,7 @@ func toUpstreamDTO(u model.UpstreamProxy) upstreamDTO {
 		ManualName: u.ManualName, Host: u.Host, Port: u.Port, Username: u.Username,
 		Protocol: u.Protocol, DisplayName: u.DisplayName, CountryCode: u.CountryCode,
 		CityName: u.CityName, Alive: u.Alive, RecentlyFailing: u.RecentlyFailing,
-		LastSeenAt: u.LastSeenAt,
+		LastSeenAt: u.LastSeenAt, LastLatencyMS: u.LastLatencyMS, LastLatencyAt: u.LastLatencyAt,
 	}
 }
 

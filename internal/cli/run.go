@@ -19,6 +19,7 @@ import (
 	"github.com/guofan/webshare-proxy/internal/registry"
 	"github.com/guofan/webshare-proxy/internal/repo"
 	"github.com/guofan/webshare-proxy/internal/routing"
+	"github.com/guofan/webshare-proxy/internal/latency"
 	syncpkg "github.com/guofan/webshare-proxy/internal/sync"
 	"github.com/guofan/webshare-proxy/internal/tunnel"
 	"github.com/guofan/webshare-proxy/internal/web"
@@ -239,6 +240,28 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 			ProxiesRemoved: res.ProxiesRemoved,
 			ProxiesAdded:   res.ProxiesAdded,
 		}, nil
+	}
+	apiSrv.Deps().TestAllLatency = func(ctx context.Context) ([]api.LatencyResult, error) {
+		ups, err := repo.ListAllResolvedUpstreams(ctx, db, masterKey)
+		if err != nil {
+			return nil, err
+		}
+		list := make([]repo.ResolvedUpstream, 0, len(ups))
+		for _, u := range ups {
+			list = append(list, *u)
+		}
+		results := latency.RunBatch(ctx, mgr, list, 10)
+		now := time.Now().UTC()
+		out := make([]api.LatencyResult, 0, len(results))
+		for _, r := range results {
+			ms := -1
+			if r.OK {
+				ms = r.LatencyMS
+			}
+			_ = repo.UpdateUpstreamLatency(ctx, db, r.UpstreamID, ms, now)
+			out = append(out, api.LatencyResult{UpstreamID: r.UpstreamID, OK: r.OK, LatencyMS: r.LatencyMS})
+		}
+		return out, nil
 	}
 	apiSrv.Deps().WebshareReplaceOptions = func(ctx context.Context, keyID int64) (*api.ReplaceOptions, error) {
 		cfg, err := syncSvc.WebshareConfig(ctx, keyID)

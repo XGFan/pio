@@ -293,13 +293,17 @@ section h2 {
 .key-card .upstreams { margin-top: 8px; }
 
 .upstream-row {
-  display: grid; grid-template-columns: 60px 1fr 1.5fr 50px 44px;
+  display: grid; grid-template-columns: 60px 1fr 1.5fr 50px 70px 44px;
   gap: 8px; padding: 4px 0; align-items: center; font-size: 13px;
 }
 .upstream-row.head { color: var(--fg-muted); font-size: 11px; font-weight: 500; border-bottom: 1px solid var(--border); padding-bottom: 6px; margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
 .upstream-row .mono { font-family: ui-monospace, 'SFMono-Regular', Menlo, Monaco, Consolas, monospace; }
 .upstream-row .alive-yes { color: var(--success); text-align: right; }
 .upstream-row .alive-no { color: var(--danger); text-align: right; }
+
+.lat-good { color: var(--success); }
+.lat-ok { color: var(--warning); }
+.lat-bad { color: var(--danger); }
 
 /* --- Users table --- */
 
@@ -364,7 +368,7 @@ section h2 {
   .topbar { padding: 10px 12px; gap: 8px; flex-wrap: wrap; }
   main#app { padding: 16px 12px 48px; }
   .row { gap: 8px; }
-  .upstream-row { grid-template-columns: 50px 1fr 50px 44px; }
+  .upstream-row { grid-template-columns: 50px 1fr 50px 70px 44px; }
   .upstream-row .col-host { display: none; }
   .user-table select { min-width: 0; }
 }

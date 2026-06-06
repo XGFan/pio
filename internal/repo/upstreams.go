@@ -42,7 +42,8 @@ type ResolvedUpstream struct {
 
 const upstreamSelectCols = `id, source, source_api_key_id, manual_name, host, port, username,
 	encrypted_password, protocol, display_name, country_code, city_name,
-	alive, recently_failing, recent_failure_count, recent_failure_since, last_seen_at`
+	alive, recently_failing, recent_failure_count, recent_failure_since, last_seen_at,
+	last_latency_ms, last_latency_at`
 
 // scanUpstream fills u from a row that selected upstreamSelectCols.
 func scanUpstream(row interface {
@@ -50,10 +51,13 @@ func scanUpstream(row interface {
 }, u *model.UpstreamProxy) (encPwd []byte, err error) {
 	var srcKey sql.NullInt64
 	var since sql.NullTime
+	var latencyMS sql.NullInt64
+	var latencyAt sql.NullTime
 	err = row.Scan(
 		&u.ID, &u.Source, &srcKey, &u.ManualName, &u.Host, &u.Port, &u.Username,
 		&encPwd, &u.Protocol, &u.DisplayName, &u.CountryCode, &u.CityName,
 		&u.Alive, &u.RecentlyFailing, &u.RecentFailureCount, &since, &u.LastSeenAt,
+		&latencyMS, &latencyAt,
 	)
 	if err != nil {
 		return nil, err
@@ -66,7 +70,25 @@ func scanUpstream(row interface {
 		t := since.Time
 		u.RecentFailureSince = &t
 	}
+	if latencyMS.Valid {
+		v := int(latencyMS.Int64)
+		u.LastLatencyMS = &v
+	}
+	if latencyAt.Valid {
+		t := latencyAt.Time
+		u.LastLatencyAt = &t
+	}
 	return encPwd, nil
+}
+
+// UpdateUpstreamLatency records the result of a latency probe: ms >= 0 for a
+// measured latency, ms = -1 for a failed probe. at is the probe time.
+func UpdateUpstreamLatency(ctx context.Context, db ExecCtx, id string, ms int, at time.Time) error {
+	_, err := db.ExecContext(ctx,
+		`UPDATE upstream_proxies SET last_latency_ms = ?, last_latency_at = ? WHERE id = ?`,
+		ms, at, id,
+	)
+	return err
 }
 
 // ListAllResolvedUpstreams reads every upstream_proxies row, decrypts the
