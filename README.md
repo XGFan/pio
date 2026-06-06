@@ -28,6 +28,10 @@ menu-bar app and an optional cookie-protected LAN web panel.
     this way.
 - **Upstream sources:** Webshare API keys (periodic sync of the proxy list)
   and manually-added HTTP / HTTPS / SOCKS5 proxies.
+- **Built-in `direct` upstream.** A reserved, always-present upstream named
+  `direct` that egresses straight out of the daemon's own host network — no
+  upstream hop. Map a user to it, or reach it by name (`username = direct`) via
+  the universal password / subscription. See [Built-in `direct` upstream](#built-in-direct-upstream).
 - **Subscription endpoint.** When enabled (and a universal password is set),
   the daemon serves a public `GET /subscription?password=…` that returns a
   SOCKS subscription list for proxy clients — one line per routable proxy.
@@ -125,6 +129,29 @@ Edited in the admin UI (or via `PUT /api/v1/settings`):
 
 Proxy on/off is controlled separately via `POST /api/v1/proxy/start` /
 `/stop` so the listener state machine stays authoritative.
+
+## Built-in `direct` upstream
+
+The daemon ships with one reserved upstream, **`direct`**, seeded automatically
+on boot. Routing to it dials the target **straight out of the daemon's own host
+network** — there is no upstream proxy hop, so traffic exits from the machine
+the daemon runs on.
+
+- **How to use it.** Either map a local user to it (the user's traffic then
+  egresses directly), or — with a universal password set — connect with
+  `username = direct` and `password = <universal-password>`. It is also emitted
+  in the subscription list as `socks://direct:…@host:port#direct`.
+- **Internal pattern, not a managed proxy.** `direct` is intentionally **hidden
+  from the admin UI** (it is excluded from `GET /api/v1/upstreams`) and is
+  immutable: it can't be edited, renamed, replaced, or deleted, and a Webshare
+  sync never removes it. It is addressed purely by name.
+- **⚠️ Security — wider egress reach.** Unlike a remote upstream (which exits
+  from the proxy's network), `direct` exits from the daemon's host, so any
+  client routed to it can reach that host's local and internal network —
+  including `localhost`, RFC1918 services, and cloud metadata
+  (`169.254.169.254`). Because it is reachable by anyone holding the universal
+  proxy password, **distribute that password accordingly** (or rely on per-user
+  mapping only).
 
 ## Subscription
 

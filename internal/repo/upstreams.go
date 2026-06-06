@@ -19,11 +19,28 @@ import (
 // later refactor target.
 const upstreamPasswordAAD = "upstream_proxies.encrypted_password"
 
-// SourceWebshare / SourceManual are the canonical values of upstream_proxies.source.
+// SourceWebshare / SourceManual / SourceDirect are the canonical values of
+// upstream_proxies.source. SourceDirect tags the single built-in "direct"
+// upstream whose egress is the daemon's own host network (no upstream hop).
 const (
 	SourceWebshare = "webshare"
 	SourceManual   = "manual"
+	SourceDirect   = "direct"
 )
+
+// DirectUpstreamID is the reserved, stable primary key of the built-in direct
+// upstream. It is also its display name, so it is routable by name through the
+// universal-password path and appears in the subscription list.
+//
+// SECURITY (intentional, product-confirmed): because direct egresses from the
+// daemon's own host, any holder of the universal proxy password can reach the
+// host's network through it — including loopback, RFC1918 internals, and cloud
+// metadata (169.254.169.254). This wider blast radius vs. a remote upstream is
+// an accepted trade-off: direct is a built-in by-name pattern meant to use the
+// app's own network as the exit. Restrict the universal password's distribution
+// accordingly. (It is still hidden from the admin UI listing — see
+// api.listUpstreams — but that is cosmetic, not a security boundary.)
+const DirectUpstreamID = "direct"
 
 // ProtocolHTTP / HTTPS / SOCKS5 enumerate the values upstream_proxies.protocol
 // is allowed to take. The CHECK constraint in migration 0004 enforces these.
@@ -122,6 +139,32 @@ func ListAllResolvedUpstreams(ctx context.Context, db *sql.DB, masterKey []byte)
 	return out, rows.Err()
 }
 
+// EnsureDirectUpstream idempotently seeds the built-in "direct" upstream
+// (id=DirectUpstreamID, source='direct'). Called at daemon boot before routing
+// hydration so the row always exists — clients can map to it, it is routable by
+// its display name, and local_users.upstream_proxy_id='direct' satisfies the FK.
+//
+// The row carries no host/port/credentials: the data plane (tunnel.DialUpstream)
+// dispatches on source=='direct' and dials the target straight out of the host
+// network. protocol is set to a valid filler ('http') only to satisfy the column
+// CHECK; it is never consulted for direct rows. encrypted_password is an empty
+// blob (no upstream auth). ON CONFLICT keeps the call self-healing and a no-op
+// once seeded, so it is safe to run on every boot.
+func EnsureDirectUpstream(ctx context.Context, db ExecCtx) error {
+	_, err := db.ExecContext(ctx, `
+		INSERT INTO upstream_proxies
+			(id, source, source_api_key_id, manual_name, host, port, username,
+			 encrypted_password, protocol, display_name, country_code, city_name,
+			 last_seen_at)
+		VALUES (?, 'direct', NULL, '', '', 0, '', X'', 'http', ?, '', '', ?)
+		ON CONFLICT(id) DO NOTHING
+	`, DirectUpstreamID, DirectUpstreamID, time.Now().UTC())
+	if err != nil {
+		return fmt.Errorf("ensure direct upstream: %w", err)
+	}
+	return nil
+}
+
 // GetUpstream returns one row by stable ID (no password decrypt).
 func GetUpstream(ctx context.Context, db *sql.DB, id string) (*model.UpstreamProxy, error) {
 	row := db.QueryRowContext(ctx, `SELECT `+upstreamSelectCols+` FROM upstream_proxies WHERE id = ?`, id)
@@ -138,12 +181,17 @@ func GetUpstream(ctx context.Context, db *sql.DB, id string) (*model.UpstreamPro
 }
 
 // ListUpstreams returns every row, ordered so that:
-//   - manual rows come before webshare rows (source ASC, since 'manual' < 'webshare')
+//   - direct/manual rows come before webshare rows (source ASC, since
+//     'direct' < 'manual' < 'webshare')
 //   - within each source bucket, rows order by country_code then display_name
 //
 // Manual rows are inserted with country_code='' so in practice they all
 // land in a single block at the top of the response — that's the UI
 // behavior we want (user-curated entries above the noisy webshare list).
+//
+// The built-in 'direct' row is returned here too; callers that render the
+// admin listing (api.listUpstreams) filter it out — it is an internal routing
+// pattern, not a managed proxy.
 func ListUpstreams(ctx context.Context, db *sql.DB) ([]model.UpstreamProxy, error) {
 	rows, err := db.QueryContext(ctx,
 		`SELECT `+upstreamSelectCols+` FROM upstream_proxies ORDER BY source ASC, country_code, display_name`,

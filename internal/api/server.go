@@ -331,6 +331,12 @@ func (s *Server) listUpstreams(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]upstreamDTO, 0, len(rows))
 	for _, u := range rows {
+		// The built-in direct upstream is an internal routing pattern, not a
+		// managed proxy: it is reachable by name (universal-password path /
+		// subscription) but is intentionally hidden from the admin UI listing.
+		if u.Source == repo.SourceDirect {
+			continue
+		}
 		out = append(out, toUpstreamDTO(u))
 	}
 	writeJSON(w, 200, out)
@@ -490,6 +496,12 @@ func (s *Server) patchUpstream(w http.ResponseWriter, r *http.Request) {
 	}
 	if cur.Source == repo.SourceManual {
 		writeErr(w, 400, "manual upstream: use PATCH /api/v1/manual-proxies/{id}")
+		return
+	}
+	// The built-in direct upstream's display name is the routing contract
+	// (universal-password + subscription key); keep it immutable.
+	if cur.Source == repo.SourceDirect {
+		writeErr(w, 400, "built-in direct upstream cannot be edited")
 		return
 	}
 	if err := repo.UpdateUpstreamDisplayName(r.Context(), s.deps.DB, id, in.DisplayName); err != nil {
