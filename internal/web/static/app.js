@@ -2,15 +2,7 @@
 
 // --- State ---
 
-const TAB_STORAGE_KEY = 'webshare.activeTab';
-
 const state = {
-  tab: (() => {
-    try {
-      const saved = localStorage.getItem(TAB_STORAGE_KEY);
-      return saved === 'users' || saved === 'sources' ? saved : 'sources';
-    } catch (_) { return 'sources'; }
-  })(),
   keys: [],
   upstreams: [],
   manualProxies: [],
@@ -82,32 +74,26 @@ async function refreshAll() {
 const $app = document.getElementById('app');
 
 function render() {
-  // Update tab active state
-  document.querySelectorAll('#tabs .tab').forEach((b) => {
-    b.classList.toggle('active', b.dataset.tab === state.tab);
-  });
-  if (state.tab === 'sources') renderSources();
-  else renderUsers();
-}
-
-function renderSources() {
   $app.innerHTML = '';
-  const cfgRow = el('div', { class: 'config-row' }, systemSection(), subscriptionSection());
-  $app.appendChild(cfgRow);
+  $app.appendChild(el('div', { class: 'config-row' }, systemSection(), subscriptionSection()));
   $app.appendChild(webshareSection());
   $app.appendChild(manualProxiesSection());
+  $app.appendChild(usersSection());
 }
 
 function manualProxiesSection() {
-  return el('section', {},
-    el('h2', {},
-      'Manual Proxies',
-      el('span', { style: 'flex:1' }),
-      el('button', { class: 'icon', title: 'Add manual proxy', onclick: () => openManualProxyModal() }, '+'),
+  return el('section', { class: 'section-card' },
+    el('div', { class: 'section-bar' },
+      el('h2', {}, 'Manual Proxies'),
+      el('div', { class: 'actions' },
+        el('button', { class: 'icon', title: 'Add manual proxy', onclick: () => openManualProxyModal() }, icon('add')),
+      ),
     ),
-    state.manualProxies.length === 0
-      ? el('div', { class: 'card empty' }, 'No manual proxies yet. Click + to add one.')
-      : el('div', { class: 'card', style: 'padding:0' }, renderManualProxiesTable()),
+    el('div', { class: 'section-body', style: 'padding:0' },
+      state.manualProxies.length === 0
+        ? el('div', { class: 'empty' }, 'No manual proxies yet. Click + to add one.')
+        : renderManualProxiesTable(),
+    ),
   );
 }
 
@@ -121,8 +107,8 @@ function renderManualProxiesTable() {
       el('td', {}, latencyCell(p.last_latency_ms)),
       el('td', { class: 'actions' },
         el('div', { class: 'action-group' },
-          el('button', { class: 'icon', title: 'Edit', onclick: () => openManualProxyModal(p) }, '✎'),
-          el('button', { class: 'icon danger-icon', title: 'Delete', onclick: () => deleteManualProxy(p) }, '✕'),
+          el('button', { class: 'icon', title: 'Edit', onclick: () => openManualProxyModal(p) }, icon('edit')),
+          el('button', { class: 'icon danger-icon', title: 'Delete', onclick: () => deleteManualProxy(p) }, icon('close')),
         ),
       ),
     ),
@@ -248,19 +234,20 @@ function systemSection() {
     subscription_enabled: false,
     subscription_host: '',
   };
-  const section = el('section', { style: 'flex:1; min-width:320px' },
-    el('h2', {},
-      'System',
-      el('span', { class: 'status-pill' },
-        el('span', { class: 'status-dot ' + (state.proxy.running ? 'running' : 'stopped') }),
-        ' ',
-        state.proxy.running ? 'Running' : 'Stopped',
+  const running = state.proxy.running;
+  const section = el('section', {},
+    el('div', { class: 'config-head' },
+      el('div', { class: 'config-head-left' },
+        el('h2', { class: 'caps' }, 'System'),
+        el('span', { class: 'status-pill ' + (running ? 'running' : 'stopped') },
+          el('span', { class: 'status-dot ' + (running ? 'running' : 'stopped') }),
+          running ? 'Running' : 'Stopped',
+        ),
       ),
-      el('span', { style: 'flex:1' }),
       el('button', {
         class: 'primary',
-        onclick: () => state.proxy.running ? stopProxy() : startProxy(),
-      }, state.proxy.running ? 'Stop proxy' : 'Start proxy'),
+        onclick: () => running ? stopProxy() : startProxy(),
+      }, running ? 'Stop proxy' : 'Start proxy'),
     ),
     card(
       el('div', { class: 'row' },
@@ -300,7 +287,7 @@ function systemSection() {
         el('div', { class: 'grow' }),
         el('button', { class: 'primary', onclick: () => setUniversalPassword(s) }, 'Save'),
         s.universal_proxy_password_set
-          ? el('button', { onclick: () => clearUniversalPassword() }, 'Clear')
+          ? el('button', { class: 'subtle', onclick: () => clearUniversalPassword() }, 'Clear')
           : null,
       ),
       state.listenerError ? el('div', { class: 'banner error' }, state.listenerError) : null,
@@ -323,37 +310,37 @@ function subscriptionSection() {
   const enableTip = hasUniversal
     ? 'Serves a public /subscription endpoint listing your routable proxies for client apps; authenticated by the universal password.'
     : 'Set a Universal password in the System card first — the subscription endpoint authenticates with it.';
-  return el('section', { style: 'flex:1; min-width:320px' },
-    el('h2', {}, 'Subscription'),
+  return el('section', {},
+    el('div', { class: 'config-head' },
+      el('h2', { class: 'caps' }, 'Subscription'),
+      el('label', { class: 'toggle' + (hasUniversal ? '' : ' disabled') },
+        inputEl({
+          type: 'checkbox',
+          checked: s.subscription_enabled ? '' : null,
+          disabled: hasUniversal ? null : '',
+          onchange: (e) => { s.subscription_enabled = e.target.checked; },
+        }),
+        el('span', { class: 'slider' }),
+        'Enable',
+        infoTip(enableTip),
+      ),
+    ),
     card(
-      el('div', { class: 'row' },
-        el('label', { class: 'checkbox-row' + (hasUniversal ? '' : ' disabled') },
-          inputEl({
-            type: 'checkbox',
-            checked: s.subscription_enabled ? '' : null,
-            disabled: hasUniversal ? null : '',
-            onchange: (e) => { s.subscription_enabled = e.target.checked; },
-          }),
-          'Enable subscription',
-          infoTip(enableTip),
+      el('div', { class: 'field' },
+        el('label', {},
+          'Subscription host',
+          infoTip('The public ip or domain clients use to reach the proxy. It fills the host:port of every generated subscription line.'),
         ),
+        inputEl({
+          class: 'mono',
+          value: s.subscription_host,
+          placeholder: 'e.g. 192.168.2.241 or proxy.example.com',
+          oninput: (e) => { s.subscription_host = e.target.value; },
+        }),
       ),
+      el('div', { class: 'grow' }),
       el('div', { class: 'row' },
-        el('div', { class: 'field' },
-          el('label', {},
-            'Subscription host',
-            infoTip('The public ip or domain clients use to reach the proxy. It fills the host:port of every generated subscription line.'),
-          ),
-          inputEl({
-            value: s.subscription_host,
-            placeholder: 'e.g. 192.168.2.241 or proxy.example.com',
-            style: 'min-width:220px',
-            oninput: (e) => { s.subscription_host = e.target.value; },
-          }),
-        ),
-      ),
-      el('div', { class: 'row' },
-        el('button', { onclick: () => copySubscriptionURL() }, 'Copy subscription URL'),
+        el('button', { class: 'outline', onclick: () => copySubscriptionURL() }, icon('content_copy'), 'Copy link'),
         el('div', { class: 'grow' }),
         el('button', { class: 'primary', onclick: () => applySettings(s) }, 'Apply'),
       ),
@@ -407,16 +394,19 @@ function latencyCell(ms) {
 }
 
 function webshareSection() {
-  return el('section', {},
-    el('h2', {},
-      'Webshare',
-      el('span', { style: 'flex:1' }),
-      el('button', { class: 'test-latency-btn icon', title: 'Test latency for all proxies', onclick: () => testLatency() }, '⏱'),
-      el('button', { class: 'icon', title: 'Add API key', onclick: () => openAddKeyModal() }, '+'),
+  return el('section', { class: 'section-card' },
+    el('div', { class: 'section-bar' },
+      el('h2', {}, 'Webshare Proxies'),
+      el('div', { class: 'actions' },
+        el('button', { class: 'test-latency-btn icon', title: 'Test latency for all proxies', onclick: () => testLatency() }, icon('clock')),
+        el('button', { class: 'subtle', title: 'Add API key', onclick: () => openAddKeyModal() }, icon('key'), 'Add API Key'),
+      ),
     ),
-    state.keys.length === 0
-      ? el('div', { class: 'card empty' }, 'No API keys configured. Click + to add one.')
-      : el('div', {}, ...state.keys.map(renderKeyCard)),
+    el('div', { class: 'section-body' },
+      state.keys.length === 0
+        ? el('div', { class: 'empty' }, 'No API keys configured. Click “Add API Key” to add one.')
+        : el('div', {}, ...state.keys.map(renderKeyCard)),
+    ),
   );
 }
 
@@ -428,13 +418,13 @@ function renderKeyCard(key) {
     el('div', { class: 'header' },
       el('span', { class: 'label' }, key.label),
       key.last_sync_error
-        ? el('span', { class: 'err-dot', title: key.last_sync_error }, '●')
+        ? el('span', { class: 'err-dot', title: key.last_sync_error }, icon('alert'))
         : null,
       key.last_synced_at
         ? el('span', { class: 'timestamp' }, formatRelative(key.last_synced_at))
         : el('span', { class: 'timestamp' }, 'never synced'),
-      el('button', { class: 'icon', title: 'Sync', onclick: () => syncKey(key.id) }, '↻'),
-      el('button', { class: 'icon danger-icon', title: 'Delete', onclick: () => deleteKey(key.id) }, '✕'),
+      el('button', { class: 'icon', title: 'Sync', onclick: () => syncKey(key.id) }, icon('refresh')),
+      el('button', { class: 'icon danger-icon', title: 'Delete', onclick: () => deleteKey(key.id) }, icon('close')),
     ),
     owned.length === 0
       ? el('div', { class: 'empty', style: 'padding:8px' }, 'No upstreams synced yet')
@@ -449,8 +439,8 @@ function renderUpstreams(rows) {
       el('div', {}, 'Display Name'),
       el('div', { class: 'col-host' }, 'Node Address'),
       el('div', {}, 'Alive'),
-      el('div', {}, 'Latency'),
-      el('div', {}, 'Actions'),
+      el('div', { class: 'col-lat' }, 'Latency'),
+      el('div', { class: 'col-act' }, 'Actions'),
     ),
     ...rows.map((u) =>
       el('div', { class: 'upstream-row' },
@@ -458,11 +448,11 @@ function renderUpstreams(rows) {
         el('div', {}, u.display_name),
         el('div', { class: 'mono col-host' }, `${u.host}:${u.port}`),
         u.alive
-          ? el('div', { class: 'alive-yes' }, '✓')
-          : el('div', { class: 'alive-no' }, '✗'),
-        el('div', {}, latencyCell(u.last_latency_ms)),
-        el('div', {},
-          el('button', { class: 'icon', title: 'Replace proxy', onclick: () => openReplaceProxyModal(u) }, '⇄'),
+          ? el('div', { class: 'alive-yes' }, icon('check'))
+          : el('div', { class: 'alive-no' }, icon('close')),
+        el('div', { class: 'col-lat' }, latencyCell(u.last_latency_ms)),
+        el('div', { class: 'col-act' },
+          el('button', { class: 'icon', title: 'Replace proxy', onclick: () => openReplaceProxyModal(u) }, icon('swap_horiz')),
         ),
       ),
     ),
@@ -606,19 +596,20 @@ function openReplaceProxyModal(u) {
     });
 }
 
-function renderUsers() {
-  $app.innerHTML = '';
-  const section = el('section', {},
-    el('h2', {},
-      'Users',
-      el('span', { style: 'flex:1' }),
-      el('button', { class: 'icon', title: 'Add user', onclick: () => openAddUserModal() }, '+'),
+function usersSection() {
+  return el('section', { class: 'section-card' },
+    el('div', { class: 'section-bar' },
+      el('h2', {}, 'Users'),
+      el('div', { class: 'actions' },
+        el('button', { class: 'icon', title: 'Add user', onclick: () => openAddUserModal() }, icon('add')),
+      ),
     ),
-    state.users.length === 0
-      ? el('div', { class: 'card empty' }, 'No users yet. Click + to add one.')
-      : el('div', { class: 'card', style: 'padding:0' }, renderUsersTable()),
+    el('div', { class: 'section-body', style: 'padding:0' },
+      state.users.length === 0
+        ? el('div', { class: 'empty' }, 'No users yet. Click + to add one.')
+        : renderUsersTable(),
+    ),
   );
-  $app.appendChild(section);
 }
 
 function renderUsersTable() {
@@ -645,13 +636,13 @@ function renderUsersTable() {
           el('button', {
             class: 'icon', title: revealed ? 'Hide' : 'Reveal',
             onclick: () => peekPassword(user.username),
-          }, revealed ? '🙈' : '👁'),
+          }, revealed ? icon('visibility_off') : icon('visibility')),
         ),
       ),
       el('td', {},
         user.broken
-          ? el('span', { class: 'broken', title: 'Mapping broken — upstream missing or stale' }, '⚠')
-          : el('span', { class: 'ok' }, '✓'),
+          ? el('span', { class: 'broken', title: 'Mapping broken — upstream missing or stale' }, icon('alert'))
+          : el('span', { class: 'ok' }, icon('check')),
       ),
       el('td', { class: 'actions' },
         el('div', { class: 'action-group' },
@@ -659,16 +650,16 @@ function renderUsersTable() {
             class: 'icon', title: 'Move up',
             disabled: idx === 0 ? '' : null,
             onclick: () => moveUser(idx, -1),
-          }, '↑'),
+          }, icon('arrow_upward')),
           el('button', {
             class: 'icon', title: 'Move down',
             disabled: idx === state.users.length - 1 ? '' : null,
             onclick: () => moveUser(idx, +1),
-          }, '↓'),
+          }, icon('arrow_downward')),
           el('button', {
             class: 'icon danger-icon', title: 'Delete',
             onclick: () => deleteUser(user.username),
-          }, '✕'),
+          }, icon('close')),
         ),
       ),
     );
@@ -944,7 +935,37 @@ function field(label, input) {
   return el('div', { class: 'field' }, el('label', {}, label), input);
 }
 
-// infoTip renders a small ⓘ icon that reveals a help bubble on hover or
+// --- Inline SVG icons (Feather, MIT) ---
+// Static, developer-authored path strings — no user input is interpolated, so
+// building the <svg> via innerHTML is safe. el() can't be used: it calls
+// createElement (HTML namespace), which would yield a non-rendering <svg>.
+const ICONS = {
+  refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
+  swap_horiz: '<polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>',
+  edit: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
+  close: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  visibility: '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>',
+  visibility_off: '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>',
+  arrow_upward: '<line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/>',
+  arrow_downward: '<line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/>',
+  check: '<polyline points="20 6 9 17 4 12"/>',
+  content_copy: '<rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>',
+  key: '<circle cx="8" cy="15" r="4"/><line x1="10.85" y1="12.15" x2="19" y2="4"/><line x1="18" y1="5" x2="20" y2="7"/><line x1="15" y1="8" x2="17" y2="10"/>',
+  add: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
+  info: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/>',
+  alert: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+  clock: '<circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/>',
+};
+
+// icon builds a Feather-style inline SVG node from the trusted ICONS map.
+function icon(name, size) {
+  const s = size || 18;
+  const wrap = document.createElement('span');
+  wrap.innerHTML = `<svg class="icon-svg" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name] || ''}</svg>`;
+  return wrap.firstElementChild;
+}
+
+// infoTip renders a small info icon that reveals a help bubble on hover or
 // click. Used next to field labels so explanatory text doesn't have to live
 // in placeholders.
 function infoTip(text) {
@@ -954,7 +975,7 @@ function infoTip(text) {
     role: 'button',
     'aria-label': text,
     onclick: (e) => { e.preventDefault(); e.stopPropagation(); e.currentTarget.classList.toggle('open'); },
-  }, 'ⓘ', el('span', { class: 'info-bubble' }, text));
+  }, icon('info', 14), el('span', { class: 'info-bubble' }, text));
 }
 
 function inputEl(attrs) {
@@ -986,14 +1007,6 @@ function formatRelative(iso) {
 }
 
 // --- Boot ---
-
-document.getElementById('tabs').addEventListener('click', (e) => {
-  const t = e.target.closest('.tab');
-  if (!t) return;
-  state.tab = t.dataset.tab;
-  try { localStorage.setItem(TAB_STORAGE_KEY, state.tab); } catch (_) {}
-  render();
-});
 
 document.getElementById('refresh-btn').addEventListener('click', () => refreshAll());
 
