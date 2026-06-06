@@ -281,6 +281,7 @@ function systemSection() {
           ),
           inputEl({
             type: 'password',
+            placeholder: s.universal_proxy_password_set ? '••••••••' : '',
             oninput: (e) => { s._universalPwd = e.target.value; },
           }),
         ),
@@ -380,7 +381,7 @@ async function copyText(text) {
 
 async function testLatency() {
   const btns = document.querySelectorAll('.test-latency-btn');
-  btns.forEach(b => { b.disabled = true; b.textContent = 'Testing…'; });
+  btns.forEach(b => { b.disabled = true; b.classList.add('spinning'); });
   try { await apiPOST('/api/v1/upstreams/test-latency'); }
   catch (e) { alert('Latency test failed: ' + e.message); }
   await refreshAll();
@@ -411,9 +412,7 @@ function webshareSection() {
 }
 
 function renderKeyCard(key) {
-  // Dead (alive=false) webshare upstreams are pruned by sync; hide any that
-  // linger in the client snapshot between a row going stale and the next sync.
-  const owned = state.upstreams.filter((u) => u.source_api_key_id === key.id && u.alive);
+  const owned = state.upstreams.filter((u) => u.source_api_key_id === key.id);
   return el('div', { class: 'key-card' },
     el('div', { class: 'header' },
       el('span', { class: 'label' }, key.label),
@@ -438,7 +437,6 @@ function renderUpstreams(rows) {
       el('div', {}, 'Country'),
       el('div', {}, 'Display Name'),
       el('div', { class: 'col-host' }, 'Node Address'),
-      el('div', {}, 'Alive'),
       el('div', { class: 'col-lat' }, 'Latency'),
       el('div', { class: 'col-act' }, 'Actions'),
     ),
@@ -447,9 +445,6 @@ function renderUpstreams(rows) {
         el('div', {}, u.country_code || '—'),
         el('div', {}, u.display_name),
         el('div', { class: 'mono col-host' }, `${u.host}:${u.port}`),
-        u.alive
-          ? el('div', { class: 'alive-yes' }, icon('check'))
-          : el('div', { class: 'alive-no' }, icon('close')),
         el('div', { class: 'col-lat' }, latencyCell(u.last_latency_ms)),
         el('div', { class: 'col-act' },
           el('button', { class: 'icon', title: 'Replace proxy', onclick: () => openReplaceProxyModal(u) }, icon('swap_horiz')),

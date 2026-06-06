@@ -108,6 +108,9 @@ button {
   transition: background 0.15s, border-color 0.15s, transform 0.05s;
 }
 button svg { width: 16px; height: 16px; flex: none; }
+@keyframes spin { to { transform: rotate(360deg); } }
+button.spinning svg { animation: spin 0.8s linear infinite; }
+@media (prefers-reduced-motion: reduce) { button.spinning svg { animation: none; } }
 button:hover:not(:disabled) { background: var(--bg-soft); border-color: var(--outline); }
 button:active:not(:disabled) { transform: scale(0.97); }
 button:disabled { opacity: 0.5; cursor: not-allowed; }
@@ -232,7 +235,7 @@ main#app { max-width: 1280px; margin: 0 auto; padding: var(--gap-md) var(--gap-m
 
 /* --- Config row (System | Subscription) --- */
 
-.config-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-xl); align-items: start; }
+.config-row { display: grid; grid-template-columns: 1fr 1fr; gap: var(--gap-xl); align-items: start; margin-bottom: var(--gap-xl); }
 .config-row > section { margin-bottom: 0; }
 
 .config-head {
@@ -398,7 +401,7 @@ section { margin-bottom: var(--gap-xl); }
 .key-card .empty { padding: 16px; }
 
 .upstream-row {
-  display: grid; grid-template-columns: 60px 1fr 1.5fr 60px 90px 56px;
+  display: grid; grid-template-columns: 60px 1fr 1.5fr 90px 56px;
   gap: 12px; padding: 10px var(--gap-sm); align-items: center; font-size: 13px;
   border-bottom: 1px solid var(--divider);
 }
@@ -410,9 +413,6 @@ section { margin-bottom: var(--gap-xl); }
   background: transparent; border-bottom: 1px solid var(--divider);
 }
 .upstream-row .mono { font-family: var(--font-mono); color: var(--fg-variant); }
-.upstream-row .alive-yes { color: var(--success); text-align: right; display: inline-flex; justify-content: flex-end; }
-.upstream-row .alive-no { color: var(--danger); text-align: right; display: inline-flex; justify-content: flex-end; }
-.upstream-row .alive-yes svg, .upstream-row .alive-no svg { width: 18px; height: 18px; }
 .upstream-row .col-lat { text-align: right; font-family: var(--font-mono); }
 .upstream-row .col-act { text-align: center; }
 
@@ -478,11 +478,11 @@ section { margin-bottom: var(--gap-xl); }
   .topbar { padding: 0 12px; gap: 8px; }
   .brand { font-size: 17px; }
   main#app { padding: 16px 12px 48px; }
-  .config-row { grid-template-columns: 1fr; gap: var(--gap-md); }
+  .config-row { grid-template-columns: 1fr; gap: var(--gap-md); margin-bottom: var(--gap-md); }
   section { margin-bottom: var(--gap-md); }
   .row { gap: 8px; }
   .section-body, .key-card .header, .upstream-row, .user-table th, .user-table td { padding-left: 12px; padding-right: 12px; }
-  .upstream-row { grid-template-columns: 50px 1fr 60px 80px 48px; }
+  .upstream-row { grid-template-columns: 50px 1fr 80px 48px; }
   .upstream-row .col-host { display: none; }
   .user-table { display: block; overflow-x: auto; white-space: nowrap; }
   .user-table select { min-width: 140px; }
