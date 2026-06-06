@@ -55,9 +55,6 @@ func (c *Core) SwapUserMapping(ctx context.Context, username string, newUpstream
 		if !ok {
 			return fmt.Errorf("routing: upstream %s not found", newUpstreamID)
 		}
-		if !newUp.Alive {
-			return fmt.Errorf("routing: upstream %s not alive", newUpstreamID)
-		}
 		newUser = &ResolvedUser{
 			Username:      oldUser.Username,
 			PasswordPlain: oldUser.PasswordPlain,
@@ -130,7 +127,7 @@ func (c *Core) SwapUserMapping(ctx context.Context, username string, newUpstream
 // at the end of its workflow, AFTER its own SQLite COMMIT.
 //
 // onMappingBroken is invoked once per (username, oldUpstreamID) whose
-// mapping is now Broken because the upstream became alive=false. Phase 4
+// mapping is now Broken because the upstream was removed by the sync. Phase 4
 // listeners hook this to close those users' active connections.
 func (c *Core) RebuildAfterSync(ctx context.Context, onMappingBroken func(username, oldUpstreamID string)) error {
 	c.mappingChangeMu.Lock()
@@ -154,7 +151,7 @@ func (c *Core) RebuildAfterSync(ctx context.Context, onMappingBroken func(userna
 		}
 		if ru.UpstreamID != "" {
 			nru.UpstreamID = ru.UpstreamID
-			if up, ok := upstreams[ru.UpstreamID]; ok && up.Alive {
+			if up, ok := upstreams[ru.UpstreamID]; ok {
 				nru.Upstream = &up.UpstreamProxy
 				nru.UpstreamPwd = up.Password
 			} else {
@@ -176,8 +173,8 @@ func (c *Core) RebuildAfterSync(ctx context.Context, onMappingBroken func(userna
 		Users:     newUsers,
 		Upstreams: upstreams,
 		// Rebuild the display-name index from the freshly-synced upstreams
-		// (alive flags and display names may have changed). The universal
-		// password itself is unchanged by a sync, so carry it over.
+		// (display names may have changed). The universal password itself is
+		// unchanged by a sync, so carry it over.
 		ByDisplayName: buildDisplayNameRoutes(upstreams),
 		UniversalPwd:  cur.UniversalPwd,
 		Version:       cur.Version + 1,
@@ -239,7 +236,7 @@ func (c *Core) RebuildForUpstreamChange(ctx context.Context, changedID string, o
 			CancelGroup:   ru.CancelGroup, // default: keep
 		}
 		if ru.UpstreamID != "" {
-			if up, ok := upstreams[ru.UpstreamID]; ok && up.Alive {
+			if up, ok := upstreams[ru.UpstreamID]; ok {
 				nru.Upstream = &up.UpstreamProxy
 				nru.UpstreamPwd = up.Password
 			} else {
@@ -250,7 +247,7 @@ func (c *Core) RebuildForUpstreamChange(ctx context.Context, changedID string, o
 		}
 		// If this user maps to the changed upstream, rotate the CG so any
 		// active bridges using the old upstream tuple get torn down even
-		// when the row is still alive (the common edit-in-place path).
+		// when the row still exists (the common edit-in-place path).
 		if ru.UpstreamID == changedID {
 			nru.CancelGroup = NewCancelGroup()
 			rotated = append(rotated, brokenInfo{username: username, oldUpstreamID: ru.UpstreamID})
@@ -261,8 +258,8 @@ func (c *Core) RebuildForUpstreamChange(ctx context.Context, changedID string, o
 	next := &RoutingState{
 		Users:     newUsers,
 		Upstreams: upstreams,
-		// The edited upstream may have changed its display name, alive flag,
-		// or identity tuple — rebuild the index from the fresh upstreams.
+		// The edited upstream may have changed its display name or identity
+		// tuple — rebuild the index from the fresh upstreams.
 		ByDisplayName: buildDisplayNameRoutes(upstreams),
 		UniversalPwd:  cur.UniversalPwd,
 		Version:       cur.Version + 1,

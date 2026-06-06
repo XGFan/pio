@@ -23,7 +23,7 @@ func (s *Server) SubscriptionHandler() http.HandlerFunc {
 // subscriptionHandler serves the SOCKS subscription list. It exists only when
 // subscription is enabled AND a universal password is set; otherwise it 404s
 // so its presence leaks nothing. One line per ROUTABLE proxy — exactly the
-// universal-password routing set (alive + unambiguous display name) taken from
+// universal-password routing set (unambiguous display name) taken from
 // the live routing snapshot:
 //
 //	socks://{display-name}:{universal-password}@{subscription-host}:{mixed-port}#{display-name}

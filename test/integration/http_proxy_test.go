@@ -85,8 +85,8 @@ func newScenario(t *testing.T) *scenario {
 	if _, err := db.DB.ExecContext(ctx, `
 		INSERT INTO upstream_proxies
 			(id, source_api_key_id, host, port, username, encrypted_password, protocol,
-			 display_name, country_code, alive, last_seen_at)
-		VALUES (?, ?, ?, ?, ?, ?, 'http', 'US-Premium-01', 'US', 1, datetime('now'))`,
+			 display_name, country_code, last_seen_at)
+		VALUES (?, ?, ?, ?, ?, ?, 'http', 'US-Premium-01', 'US', datetime('now'))`,
 		upstreamID, keyID, up.Host(), up.Port(), scenUpstreamUser, encPwd); err != nil {
 		t.Fatal(err)
 	}

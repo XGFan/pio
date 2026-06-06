@@ -42,7 +42,7 @@ type ResolvedUpstream struct {
 
 const upstreamSelectCols = `id, source, source_api_key_id, manual_name, host, port, username,
 	encrypted_password, protocol, display_name, country_code, city_name,
-	alive, recently_failing, recent_failure_count, recent_failure_since, last_seen_at,
+	recently_failing, recent_failure_count, recent_failure_since, last_seen_at,
 	last_latency_ms, last_latency_at`
 
 // scanUpstream fills u from a row that selected upstreamSelectCols.
@@ -56,7 +56,7 @@ func scanUpstream(row interface {
 	err = row.Scan(
 		&u.ID, &u.Source, &srcKey, &u.ManualName, &u.Host, &u.Port, &u.Username,
 		&encPwd, &u.Protocol, &u.DisplayName, &u.CountryCode, &u.CityName,
-		&u.Alive, &u.RecentlyFailing, &u.RecentFailureCount, &since, &u.LastSeenAt,
+		&u.RecentlyFailing, &u.RecentFailureCount, &since, &u.LastSeenAt,
 		&latencyMS, &latencyAt,
 	)
 	if err != nil {
@@ -403,8 +403,8 @@ func InsertManualProxy(ctx context.Context, db *sql.DB, masterKey []byte, in Man
 		INSERT INTO upstream_proxies
 			(id, source, source_api_key_id, manual_name, host, port, username,
 			 encrypted_password, protocol, display_name, country_code, city_name,
-			 alive, last_seen_at)
-		VALUES (?, 'manual', NULL, ?, ?, ?, ?, ?, ?, ?, '', '', 1, ?)
+			 last_seen_at)
+		VALUES (?, 'manual', NULL, ?, ?, ?, ?, ?, ?, ?, '', '', ?)
 	`, id, in.Name, in.Host, in.Port, in.Username, enc, in.Protocol, in.Name, now)
 	if err != nil {
 		if isUniqueViolation(err) {

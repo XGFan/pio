@@ -62,7 +62,7 @@ func fakeTunnelProxy(t *testing.T, backendAddr string) string {
 func mockProxyUpstream(id, addr string) model.UpstreamProxy {
 	host, portStr, _ := net.SplitHostPort(addr)
 	port, _ := strconv.Atoi(portStr)
-	return model.UpstreamProxy{ID: id, Host: host, Port: port, Protocol: "http", Alive: true}
+	return model.UpstreamProxy{ID: id, Host: host, Port: port, Protocol: "http"}
 }
 
 func latencyMgr() *tunnel.Manager { return tunnel.New(routing.NewCore(nil, nil)) }
@@ -107,7 +107,7 @@ func TestLatencyRunBatch_GoodAndDead(t *testing.T) {
 	good := repo.ResolvedUpstream{UpstreamProxy: mockProxyUpstream("good", goodAddr)}
 	// Dead: a closed port → connection refused.
 	dead := repo.ResolvedUpstream{UpstreamProxy: model.UpstreamProxy{
-		ID: "dead", Host: "127.0.0.1", Port: 1, Protocol: "http", Alive: true,
+		ID: "dead", Host: "127.0.0.1", Port: 1, Protocol: "http",
 	}}
 
 	results := latency.RunBatch(context.Background(), latencyMgr(), []repo.ResolvedUpstream{good, dead}, 4)

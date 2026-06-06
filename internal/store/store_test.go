@@ -174,7 +174,6 @@ func TestIndexesPresent(t *testing.T) {
 	expected := []string{
 		"idx_upstream_proxies_source_api_key_id",
 		"idx_upstream_proxies_country_code",
-		"idx_upstream_proxies_alive",
 		"idx_audit_log_at",
 	}
 	for _, name := range expected {

@@ -26,9 +26,9 @@ func mustMK(t *testing.T) []byte {
 	return k
 }
 
-// seedOne inserts: 1 api_key + 1 upstream (alive=true) + 1 local_user alice
-// mapped to that upstream. Returns the upstream's plaintext password so
-// the test can assert on Acquire's return.
+// seedOne inserts: 1 api_key + 1 upstream + 1 local_user alice mapped to that
+// upstream. Returns the upstream's plaintext password so the test can assert
+// on Acquire's return.
 func seedOne(t *testing.T, db *store.DBHandle, mk []byte) string {
 	t.Helper()
 	ctx := context.Background()
@@ -41,8 +41,8 @@ func seedOne(t *testing.T, db *store.DBHandle, mk []byte) string {
 	upstreamID := "1111222233334444"
 	if _, err := db.DB.ExecContext(ctx,
 		`INSERT INTO upstream_proxies (id, source_api_key_id, host, port, username, encrypted_password, protocol,
-			display_name, country_code, alive, last_seen_at)
-		 VALUES (?, ?, '127.0.0.1', 9999, 'upU', ?, 'http', 'US-P-01', 'US', 1, datetime('now'))`,
+			display_name, country_code, last_seen_at)
+		 VALUES (?, ?, '127.0.0.1', 9999, 'upU', ?, 'http', 'US-P-01', 'US', datetime('now'))`,
 		upstreamID, keyID, enc); err != nil {
 		t.Fatal(err)
 	}
@@ -115,14 +115,16 @@ func TestAcquireBadPassword(t *testing.T) {
 	}
 }
 
-func TestAcquireUpstreamStale(t *testing.T) {
+func TestAcquireBrokenWhenUpstreamMissing(t *testing.T) {
 	defer goleak.VerifyNone(t)
 	db := store.MustOpenInMemoryTest(t)
 	defer db.Close()
 	mk := mustMK(t)
 	_ = seedOne(t, db, mk)
-	// Mark upstream dead before hydrating.
-	if _, err := db.DB.Exec(`UPDATE upstream_proxies SET alive=0 WHERE id=?`, "1111222233334444"); err != nil {
+	// Delete the mapped upstream (simulates a webshare rotation pruning it).
+	// alice's mapping is left dangling/nulled, so after hydrate she has no
+	// usable upstream.
+	if _, err := db.DB.Exec(`DELETE FROM upstream_proxies WHERE id=?`, "1111222233334444"); err != nil {
 		t.Fatal(err)
 	}
 	core := routing.NewCore(db.DB, mk)
@@ -130,12 +132,10 @@ func TestAcquireUpstreamStale(t *testing.T) {
 		t.Fatal(err)
 	}
 	mgr := tunnel.New(core)
-	// Hydrate marked Broken=true because upstream.alive=false, so we get
-	// ErrBrokenMapping (which is the user-facing flag) — that's the
-	// authoritative answer for a stale mapping.
+	// No usable upstream for alice → ErrBrokenMapping (the user-facing flag).
 	_, _, _, err := mgr.Acquire(context.Background(), "alice", "alicepw")
 	if !errors.Is(err, tunnel.ErrBrokenMapping) {
-		t.Fatalf("expected ErrBrokenMapping for dead upstream, got %v", err)
+		t.Fatalf("expected ErrBrokenMapping for missing upstream, got %v", err)
 	}
 }
 

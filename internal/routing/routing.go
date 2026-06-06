@@ -90,8 +90,8 @@ type RoutingState struct {
 	Users     map[string]*ResolvedUser
 	Upstreams map[string]*repo.ResolvedUpstream
 	// ByDisplayName indexes routable upstreams by their display name for the
-	// universal-password path. Only alive upstreams with a non-empty,
-	// unambiguous (unique among alive rows) display name appear here.
+	// universal-password path. Only upstreams with a non-empty, unambiguous
+	// (unique) display name appear here.
 	ByDisplayName map[string]*DisplayNameRoute
 	// UniversalPwd is the decrypted universal proxy password, or "" when the
 	// feature is disabled. Compared constant-time in tunnel.Acquire.
@@ -101,19 +101,19 @@ type RoutingState struct {
 }
 
 // buildDisplayNameRoutes indexes upstreams by display name for the universal-
-// password path. A display name shared by 2+ alive upstreams is ambiguous and
-// is dropped entirely (not routable) so the universal path can never silently
-// pick the wrong proxy. Disabled/stale (alive=false) upstreams are excluded.
+// password path. A display name shared by 2+ upstreams is ambiguous and is
+// dropped entirely (not routable) so the universal path can never silently
+// pick the wrong proxy.
 func buildDisplayNameRoutes(upstreams map[string]*repo.ResolvedUpstream) map[string]*DisplayNameRoute {
 	counts := make(map[string]int, len(upstreams))
 	for _, up := range upstreams {
-		if up.Alive && up.DisplayName != "" {
+		if up.DisplayName != "" {
 			counts[up.DisplayName]++
 		}
 	}
 	routes := make(map[string]*DisplayNameRoute)
 	for _, up := range upstreams {
-		if !up.Alive || up.DisplayName == "" {
+		if up.DisplayName == "" {
 			continue
 		}
 		if counts[up.DisplayName] != 1 {
@@ -208,9 +208,6 @@ func (c *Core) Hydrate(ctx context.Context) error {
 			if up, ok := upstreams[*u.UpstreamProxyID]; ok {
 				ru.Upstream = &up.UpstreamProxy
 				ru.UpstreamPwd = up.Password
-				if !up.Alive {
-					ru.Broken = true
-				}
 			} else {
 				// FK should prevent this, but guard for the cascade-null race.
 				ru.Broken = true

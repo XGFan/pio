@@ -24,7 +24,7 @@ func subKey() []byte {
 	return k
 }
 
-func seedSubUpstream(t *testing.T, db *store.DBHandle, mk []byte, id, displayName string, alive bool) {
+func seedSubUpstream(t *testing.T, db *store.DBHandle, mk []byte, id, displayName string) {
 	t.Helper()
 	ctx := context.Background()
 	keyID, err := repo.InsertApiKey(ctx, db.DB, mk, "L-"+id, "sk_"+id)
@@ -32,23 +32,19 @@ func seedSubUpstream(t *testing.T, db *store.DBHandle, mk []byte, id, displayNam
 		t.Fatal(err)
 	}
 	enc, _ := crypto.Encrypt(mk, []byte("uppw"), crypto.ColumnAAD("upstream_proxies.encrypted_password"))
-	aliveInt := 0
-	if alive {
-		aliveInt = 1
-	}
 	if _, err := db.DB.ExecContext(ctx,
 		`INSERT INTO upstream_proxies
 			(id, source_api_key_id, host, port, username, encrypted_password, protocol,
-			 display_name, country_code, alive, last_seen_at)
-		 VALUES (?, ?, '127.0.0.1', 9000, 'u', ?, 'http', ?, 'US', ?, datetime('now'))`,
-		id, keyID, enc, displayName, aliveInt); err != nil {
+			 display_name, country_code, last_seen_at)
+		 VALUES (?, ?, '127.0.0.1', 9000, 'u', ?, 'http', ?, 'US', datetime('now'))`,
+		id, keyID, enc, displayName); err != nil {
 		t.Fatal(err)
 	}
 }
 
 // buildSubServer seeds a subscription-enabled daemon with one routable proxy
-// (US-A-01), one dead proxy (DEAD-01), and a duplicate-named pair (DUP) that
-// is ambiguous — so only US-A-01 should appear in the subscription.
+// (US-A-01) and a duplicate-named pair (DUP) that is ambiguous — so only
+// US-A-01 should appear in the subscription.
 func buildSubServer(t *testing.T, enabled bool, universalPwd string) http.Handler {
 	t.Helper()
 	ctx := context.Background()
@@ -72,10 +68,9 @@ func buildSubServer(t *testing.T, enabled bool, universalPwd string) http.Handle
 		}
 	}
 
-	seedSubUpstream(t, db, mk, "aaaaaaaaaaaaaaaa", "US-A-01", true)
-	seedSubUpstream(t, db, mk, "bbbbbbbbbbbbbbbb", "DEAD-01", false)
-	seedSubUpstream(t, db, mk, "cccccccccccccccc", "DUP", true)
-	seedSubUpstream(t, db, mk, "dddddddddddddddd", "DUP", true)
+	seedSubUpstream(t, db, mk, "aaaaaaaaaaaaaaaa", "US-A-01")
+	seedSubUpstream(t, db, mk, "cccccccccccccccc", "DUP")
+	seedSubUpstream(t, db, mk, "dddddddddddddddd", "DUP")
 
 	core := routing.NewCore(db.DB, mk)
 	if err := core.Hydrate(ctx); err != nil {
@@ -135,9 +130,6 @@ func TestSubscription_RoutableProxiesOnly(t *testing.T) {
 	want := "socks://US-A-01:masterpw@proxy.example.com:8080#US-A-01"
 	if !strings.Contains(body, want) {
 		t.Errorf("body missing routable line.\n got: %q\nwant substring: %q", body, want)
-	}
-	if strings.Contains(body, "DEAD-01") {
-		t.Error("dead upstream leaked into subscription")
 	}
 	if strings.Contains(body, "DUP") {
 		t.Error("ambiguous (duplicate display name) upstream leaked into subscription")

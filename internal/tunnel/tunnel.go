@@ -35,7 +35,6 @@ var (
 	ErrUnknownUser    = errors.New("tunnel: unknown user")
 	ErrBadPassword    = errors.New("tunnel: bad password")
 	ErrBrokenMapping  = errors.New("tunnel: mapping broken")
-	ErrUpstreamStale  = errors.New("tunnel: upstream stale (alive=false)")
 	ErrUpstreamDial   = errors.New("tunnel: upstream dial failed")
 	ErrUpstreamAuth   = errors.New("tunnel: upstream rejected our credentials")
 )
@@ -84,9 +83,6 @@ func (m *Manager) Acquire(_ context.Context, username, password string) (*model.
 		if u.Broken || u.Upstream == nil {
 			return nil, "", nil, ErrBrokenMapping
 		}
-		if !u.Upstream.Alive {
-			return nil, "", nil, ErrUpstreamStale
-		}
 		return u.Upstream, u.UpstreamPwd, u.CancelGroup, nil
 	}
 
@@ -99,13 +95,13 @@ func (m *Manager) Acquire(_ context.Context, username, password string) (*model.
 		route, ok := state.ByDisplayName[username]
 		if !ok {
 			// Either no proxy has this display name, or the name is ambiguous
-			// (shared by multiple alive upstreams) and was deliberately
-			// dropped from the index. Treat as unknown so the deny-list can
-			// throttle display-name probing.
+			// (shared by multiple upstreams) and was deliberately dropped from
+			// the index. Treat as unknown so the deny-list can throttle
+			// display-name probing.
 			return nil, "", nil, ErrUnknownUser
 		}
-		if route.Upstream == nil || !route.Upstream.Alive {
-			return nil, "", nil, ErrUpstreamStale
+		if route.Upstream == nil {
+			return nil, "", nil, ErrBrokenMapping
 		}
 		return route.Upstream, route.UpstreamPwd, route.CancelGroup, nil
 	}

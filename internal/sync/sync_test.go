@@ -133,11 +133,8 @@ func TestFirstSyncInsertsAllUpstreams(t *testing.T) {
 		t.Fatalf("got %d rows, want 3", len(rows))
 	}
 
-	// Verify country_code persisted, alive=true, encrypted_password decrypts back.
+	// Verify country_code persisted and encrypted_password decrypts back.
 	for _, r := range rows {
-		if !r.alive {
-			t.Errorf("%s: alive=false on initial insert", r.id)
-		}
 		if r.countryCode != "US" && r.countryCode != "DE" {
 			t.Errorf("%s: unexpected country %q", r.id, r.countryCode)
 		}
@@ -214,9 +211,6 @@ func TestSyncDeletesAbsentUpstreams(t *testing.T) {
 	rows := dumpUpstreams(t, fx.db, fx.keyID)
 	if len(rows) != 1 {
 		t.Fatalf("expected 1 row (the surviving proxy), got %d", len(rows))
-	}
-	if !rows[0].alive {
-		t.Errorf("surviving proxy should be alive")
 	}
 	if rows[0].host != "1.1.1.1" {
 		t.Errorf("wrong surviving proxy: host=%q want 1.1.1.1", rows[0].host)
@@ -483,13 +477,12 @@ type upstreamRow struct {
 	port                         int
 	username                     string
 	encryptedPassword            []byte
-	alive                        bool
 }
 
 func dumpUpstreams(t *testing.T, db *sql.DB, keyID int64) []upstreamRow {
 	t.Helper()
 	rows, err := db.Query(
-		`SELECT id, display_name, country_code, host, port, username, encrypted_password, alive
+		`SELECT id, display_name, country_code, host, port, username, encrypted_password
 		   FROM upstream_proxies WHERE source_api_key_id = ?
 		  ORDER BY id`, keyID,
 	)
@@ -500,7 +493,7 @@ func dumpUpstreams(t *testing.T, db *sql.DB, keyID int64) []upstreamRow {
 	var out []upstreamRow
 	for rows.Next() {
 		var r upstreamRow
-		if err := rows.Scan(&r.id, &r.displayName, &r.countryCode, &r.host, &r.port, &r.username, &r.encryptedPassword, &r.alive); err != nil {
+		if err := rows.Scan(&r.id, &r.displayName, &r.countryCode, &r.host, &r.port, &r.username, &r.encryptedPassword); err != nil {
 			t.Fatal(err)
 		}
 		out = append(out, r)
@@ -539,8 +532,8 @@ func contentHashIgnoringTimes(t *testing.T, db *sql.DB, keyID int64, masterKey [
 		if err != nil {
 			t.Fatalf("decrypt %s: %v", r.id, err)
 		}
-		parts = append(parts, fmt.Sprintf("%s|%s|%s|%s|%d|%s|pw=%s|alive=%v",
-			r.id, r.displayName, r.countryCode, r.host, r.port, r.username, pw, r.alive,
+		parts = append(parts, fmt.Sprintf("%s|%s|%s|%s|%d|%s|pw=%s",
+			r.id, r.displayName, r.countryCode, r.host, r.port, r.username, pw,
 		))
 	}
 	sort.Strings(parts)

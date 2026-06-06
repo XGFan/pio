@@ -110,8 +110,8 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 		}
 
 		if existingRow, ok := existing[id]; ok {
-			// Existing row: refresh mutable metadata, mark alive, leave
-			// display_name untouched so user renames stick — UNLESS the
+			// Existing row: refresh mutable metadata, leave display_name
+			// untouched so user renames stick — UNLESS the
 			// stored name still uses the legacy "{CC}-{label}-{NN}" form,
 			// in which case rewrite it to the canonical "{label}-{CC}-{NN}".
 			newDN := ""
@@ -123,7 +123,7 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 					UPDATE upstream_proxies
 					   SET host=?, port=?, username=?, encrypted_password=?,
 					       country_code=?, city_name=?, display_name=?,
-					       alive=1, last_seen_at=?
+					       last_seen_at=?
 					 WHERE id=?
 				`, p.ProxyAddress, p.Port, p.Username, encPwd,
 					p.CountryCode, p.CityName, newDN, now, id); err != nil {
@@ -133,7 +133,7 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 				if _, err := tx.ExecContext(ctx, `
 					UPDATE upstream_proxies
 					   SET host=?, port=?, username=?, encrypted_password=?,
-					       country_code=?, city_name=?, alive=1, last_seen_at=?
+					       country_code=?, city_name=?, last_seen_at=?
 					 WHERE id=?
 				`, p.ProxyAddress, p.Port, p.Username, encPwd,
 					p.CountryCode, p.CityName, now, id); err != nil {
@@ -153,8 +153,8 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 		if _, err := tx.ExecContext(ctx, `
 			INSERT INTO upstream_proxies
 				(id, source, source_api_key_id, host, port, username, encrypted_password,
-				 protocol, display_name, country_code, city_name, alive, last_seen_at)
-			VALUES (?, 'webshare', ?, ?, ?, ?, ?, 'http', ?, ?, ?, 1, ?)
+				 protocol, display_name, country_code, city_name, last_seen_at)
+			VALUES (?, 'webshare', ?, ?, ?, ?, ?, 'http', ?, ?, ?, ?)
 		`, id, keyID, p.ProxyAddress, p.Port, p.Username, encPwd,
 			dn, p.CountryCode, p.CityName, now); err != nil {
 			return fmt.Errorf("insert upstream %s: %w", id, err)

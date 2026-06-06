@@ -82,8 +82,8 @@ func newHotSwitchScenario(t *testing.T) *hotSwitchScenario {
 	} {
 		if _, err := db.DB.ExecContext(ctx, `
 			INSERT INTO upstream_proxies (id, source_api_key_id, host, port, username, encrypted_password, protocol,
-				display_name, country_code, alive, last_seen_at)
-			VALUES (?, ?, ?, ?, ?, ?, 'http', ?, 'US', 1, datetime('now'))`,
+				display_name, country_code, last_seen_at)
+			VALUES (?, ?, ?, ?, ?, ?, 'http', ?, 'US', datetime('now'))`,
 			row.id, keyID, row.host, row.port, row.user, row.enc, "US-P-"+row.id[:2]); err != nil {
 			t.Fatal(err)
 		}

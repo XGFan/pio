@@ -262,8 +262,6 @@ func (p *HTTPProxy) handleAuthError(conn net.Conn, err error) {
 		write407(conn, "invalid credentials")
 	case errors.Is(err, tunnel.ErrBrokenMapping):
 		write502(conn, "upstream not available")
-	case errors.Is(err, tunnel.ErrUpstreamStale):
-		write407(conn, "upstream stale")
 	default:
 		write502(conn, "internal error")
 	}

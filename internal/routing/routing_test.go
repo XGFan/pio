@@ -41,8 +41,8 @@ func seedRouting(t *testing.T, db *store.DBHandle) (apiKeyID int64, upstreamID, 
 	if _, err := db.DB.ExecContext(ctx, `
 		INSERT INTO upstream_proxies
 			(id, source_api_key_id, host, port, username, encrypted_password, protocol,
-			 display_name, country_code, city_name, alive, last_seen_at)
-		VALUES (?, ?, '1.2.3.4', 8080, 'upU', ?, 'http', 'US-Premium-01', 'US', '', 1, datetime('now'))`,
+			 display_name, country_code, city_name, last_seen_at)
+		VALUES (?, ?, '1.2.3.4', 8080, 'upU', ?, 'http', 'US-Premium-01', 'US', '', datetime('now'))`,
 		upstreamID, apiKeyID, encPwd); err != nil {
 		t.Fatal(err)
 	}
@@ -117,28 +117,6 @@ func TestHydrateMarksBrokenForMissingUpstream(t *testing.T) {
 	u := core.Snapshot().Users["lonely"]
 	if u == nil || !u.Broken {
 		t.Fatalf("unmapped user should be Broken; got %+v", u)
-	}
-}
-
-func TestHydrateMarksBrokenForDeadUpstream(t *testing.T) {
-	defer goleak.VerifyNone(t)
-	db := store.MustOpenInMemoryTest(t)
-	defer db.Close()
-	ctx := context.Background()
-
-	_, upstreamID, username := seedRouting(t, db)
-	// Mark upstream alive=false.
-	if _, err := db.DB.ExecContext(ctx, `UPDATE upstream_proxies SET alive=0 WHERE id=?`, upstreamID); err != nil {
-		t.Fatal(err)
-	}
-
-	core := routing.NewCore(db.DB, mustMK(t))
-	if err := core.Hydrate(ctx); err != nil {
-		t.Fatal(err)
-	}
-	u := core.Snapshot().Users[username]
-	if u == nil || !u.Broken {
-		t.Fatalf("user mapped to dead upstream should be Broken; got %+v", u)
 	}
 }
 

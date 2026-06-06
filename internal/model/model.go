@@ -23,8 +23,6 @@ type ApiKey struct {
 // manual rows ID is a random 16-hex string generated at insert time. The
 // Source discriminator tells the two apart.
 //
-// Alive is sync-authoritative for webshare rows (only the sync goroutine
-// writes it). Manual rows stay alive=true unless explicitly toggled.
 // RecentlyFailing is advisory and set by the dial-failure heuristic — it
 // does NOT veto routing decisions.
 type UpstreamProxy struct {
@@ -40,7 +38,6 @@ type UpstreamProxy struct {
 	DisplayName        string // auto: "{label}-{country}-{seq}"; user-editable for webshare; equals ManualName for manual
 	CountryCode        string
 	CityName           string
-	Alive              bool
 	RecentlyFailing    bool
 	RecentFailureCount int
 	RecentFailureSince *time.Time

@@ -281,7 +281,7 @@ func (s *Server) syncKey(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	// Re-hydrate routing so the swap reflects the new alive flags.
+	// Re-hydrate routing so the swap reflects the new upstream set.
 	if err := s.deps.Core.RebuildAfterSync(r.Context(), func(u, oldUp string) {
 		s.deps.Registry.CloseByUserUpstream(u, oldUp)
 		s.deps.Hub.Broadcast("mapping_broken", map[string]any{"username": u, "old_upstream_id": oldUp})
@@ -305,7 +305,6 @@ type upstreamDTO struct {
 	DisplayName     string    `json:"display_name"`
 	CountryCode     string    `json:"country_code"`
 	CityName        string    `json:"city_name,omitempty"`
-	Alive           bool       `json:"alive"`
 	RecentlyFailing bool       `json:"recently_failing"`
 	LastSeenAt      time.Time  `json:"last_seen_at"`
 	// LastLatencyMS: omitted when never tested, -1 when the last probe failed,
@@ -319,7 +318,7 @@ func toUpstreamDTO(u model.UpstreamProxy) upstreamDTO {
 		ID: u.ID, Source: u.Source, SourceApiKeyID: u.SourceApiKeyID,
 		ManualName: u.ManualName, Host: u.Host, Port: u.Port, Username: u.Username,
 		Protocol: u.Protocol, DisplayName: u.DisplayName, CountryCode: u.CountryCode,
-		CityName: u.CityName, Alive: u.Alive, RecentlyFailing: u.RecentlyFailing,
+		CityName: u.CityName, RecentlyFailing: u.RecentlyFailing,
 		LastSeenAt: u.LastSeenAt, LastLatencyMS: u.LastLatencyMS, LastLatencyAt: u.LastLatencyAt,
 	}
 }

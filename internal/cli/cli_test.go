@@ -162,7 +162,7 @@ func verifyAC1(t *testing.T, dbPath string) {
 	defer db.Close()
 
 	rows, err := db.QueryContext(ctx,
-		`SELECT host, port, country_code, alive FROM upstream_proxies ORDER BY host`)
+		`SELECT host, port, country_code FROM upstream_proxies ORDER BY host`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,12 +171,8 @@ func verifyAC1(t *testing.T, dbPath string) {
 	for rows.Next() {
 		var host, cc string
 		var port int
-		var alive bool
-		if err := rows.Scan(&host, &port, &cc, &alive); err != nil {
+		if err := rows.Scan(&host, &port, &cc); err != nil {
 			t.Fatal(err)
-		}
-		if !alive {
-			t.Errorf("%s: alive=false after fresh sync", host)
 		}
 		got = append(got, fmt.Sprintf("%s:%d/%s", host, port, cc))
 	}

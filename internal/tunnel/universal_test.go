@@ -13,9 +13,9 @@ import (
 )
 
 // insertUpstreamRow inserts a webshare-style upstream with the given id,
-// display name, alive flag, and plaintext upstream password. Each row gets
-// its own api_keys parent so the FK is satisfied.
-func insertUpstreamRow(t *testing.T, db *store.DBHandle, mk []byte, id, displayName string, alive bool, pwd string) {
+// display name, and plaintext upstream password. Each row gets its own
+// api_keys parent so the FK is satisfied.
+func insertUpstreamRow(t *testing.T, db *store.DBHandle, mk []byte, id, displayName, pwd string) {
 	t.Helper()
 	ctx := context.Background()
 	keyID, err := repo.InsertApiKey(ctx, db.DB, mk, "L-"+id, "sk_"+id)
@@ -23,16 +23,12 @@ func insertUpstreamRow(t *testing.T, db *store.DBHandle, mk []byte, id, displayN
 		t.Fatal(err)
 	}
 	enc, _ := crypto.Encrypt(mk, []byte(pwd), crypto.ColumnAAD("upstream_proxies.encrypted_password"))
-	aliveInt := 0
-	if alive {
-		aliveInt = 1
-	}
 	if _, err := db.DB.ExecContext(ctx,
 		`INSERT INTO upstream_proxies
 			(id, source_api_key_id, host, port, username, encrypted_password, protocol,
-			 display_name, country_code, alive, last_seen_at)
-		 VALUES (?, ?, '127.0.0.1', 9000, 'upU', ?, 'http', ?, 'US', ?, datetime('now'))`,
-		id, keyID, enc, displayName, aliveInt); err != nil {
+			 display_name, country_code, last_seen_at)
+		 VALUES (?, ?, '127.0.0.1', 9000, 'upU', ?, 'http', ?, 'US', datetime('now'))`,
+		id, keyID, enc, displayName); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -51,8 +47,8 @@ func TestAcquireUniversal_RoutesByDisplayName(t *testing.T) {
 	db := store.MustOpenInMemoryTest(t)
 	defer db.Close()
 	mk := mustMK(t)
-	insertUpstreamRow(t, db, mk, "1111111111111111", "US-A-01", true, "pwA")
-	insertUpstreamRow(t, db, mk, "2222222222222222", "US-B-01", true, "pwB")
+	insertUpstreamRow(t, db, mk, "1111111111111111", "US-A-01", "pwA")
+	insertUpstreamRow(t, db, mk, "2222222222222222", "US-B-01", "pwB")
 	if err := repo.SetUniversalProxyPassword(context.Background(), db.DB, mk, "master"); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +81,7 @@ func TestAcquireUniversal_WrongPassword(t *testing.T) {
 	db := store.MustOpenInMemoryTest(t)
 	defer db.Close()
 	mk := mustMK(t)
-	insertUpstreamRow(t, db, mk, "1111111111111111", "US-A-01", true, "pwA")
+	insertUpstreamRow(t, db, mk, "1111111111111111", "US-A-01", "pwA")
 	if err := repo.SetUniversalProxyPassword(context.Background(), db.DB, mk, "master"); err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +97,7 @@ func TestAcquireUniversal_UnknownDisplayName(t *testing.T) {
 	db := store.MustOpenInMemoryTest(t)
 	defer db.Close()
 	mk := mustMK(t)
-	insertUpstreamRow(t, db, mk, "1111111111111111", "US-A-01", true, "pwA")
+	insertUpstreamRow(t, db, mk, "1111111111111111", "US-A-01", "pwA")
 	if err := repo.SetUniversalProxyPassword(context.Background(), db.DB, mk, "master"); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +113,7 @@ func TestAcquireUniversal_DisabledWhenUnset(t *testing.T) {
 	db := store.MustOpenInMemoryTest(t)
 	defer db.Close()
 	mk := mustMK(t)
-	insertUpstreamRow(t, db, mk, "1111111111111111", "US-A-01", true, "pwA")
+	insertUpstreamRow(t, db, mk, "1111111111111111", "US-A-01", "pwA")
 	// No universal password configured → feature off.
 	mgr := hydratedMgr(t, db, mk)
 
@@ -131,9 +127,9 @@ func TestAcquireUniversal_AmbiguousDisplayNameRefused(t *testing.T) {
 	db := store.MustOpenInMemoryTest(t)
 	defer db.Close()
 	mk := mustMK(t)
-	// Two alive upstreams share a display name → ambiguous → not routable.
-	insertUpstreamRow(t, db, mk, "1111111111111111", "DUP-01", true, "pwA")
-	insertUpstreamRow(t, db, mk, "2222222222222222", "DUP-01", true, "pwB")
+	// Two upstreams share a display name → ambiguous → not routable.
+	insertUpstreamRow(t, db, mk, "1111111111111111", "DUP-01", "pwA")
+	insertUpstreamRow(t, db, mk, "2222222222222222", "DUP-01", "pwB")
 	if err := repo.SetUniversalProxyPassword(context.Background(), db.DB, mk, "master"); err != nil {
 		t.Fatal(err)
 	}
@@ -142,22 +138,6 @@ func TestAcquireUniversal_AmbiguousDisplayNameRefused(t *testing.T) {
 	_, _, _, err := mgr.Acquire(context.Background(), "DUP-01", "master")
 	if !errors.Is(err, tunnel.ErrUnknownUser) {
 		t.Fatalf("err = %v, want ErrUnknownUser (ambiguous name refused)", err)
-	}
-}
-
-func TestAcquireUniversal_SkipsDeadUpstream(t *testing.T) {
-	db := store.MustOpenInMemoryTest(t)
-	defer db.Close()
-	mk := mustMK(t)
-	insertUpstreamRow(t, db, mk, "1111111111111111", "DEAD-01", false, "pwA")
-	if err := repo.SetUniversalProxyPassword(context.Background(), db.DB, mk, "master"); err != nil {
-		t.Fatal(err)
-	}
-	mgr := hydratedMgr(t, db, mk)
-
-	_, _, _, err := mgr.Acquire(context.Background(), "DEAD-01", "master")
-	if !errors.Is(err, tunnel.ErrUnknownUser) {
-		t.Fatalf("err = %v, want ErrUnknownUser (dead upstream not indexed)", err)
 	}
 }
 
@@ -172,8 +152,8 @@ func TestAcquireUniversal_PerUserPrecedence(t *testing.T) {
 
 	// Upstream uA happens to have display name "alice"; upstream uB is what
 	// the local user "alice" is mapped to.
-	insertUpstreamRow(t, db, mk, "aaaaaaaaaaaaaaaa", "alice", true, "pwA")
-	insertUpstreamRow(t, db, mk, "bbbbbbbbbbbbbbbb", "US-B-01", true, "pwB")
+	insertUpstreamRow(t, db, mk, "aaaaaaaaaaaaaaaa", "alice", "pwA")
+	insertUpstreamRow(t, db, mk, "bbbbbbbbbbbbbbbb", "US-B-01", "pwB")
 	if err := repo.InsertLocalUser(ctx, db.DB, "alice", "alicepw", ""); err != nil {
 		t.Fatal(err)
 	}
