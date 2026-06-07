@@ -1,4 +1,4 @@
-# Canonical Kubernetes manifest for the pia service.
+# Canonical Kubernetes manifest for the webshare service.
 #
 # Applied by .woodpecker.yaml (kubectl apply -f deploy/k8s.yaml) on every
 # push to master, followed by `kubectl set image` to roll the freshly-built
@@ -6,13 +6,13 @@
 # env vars, the LoadBalancer Service, ingress, or storage — `set image` only
 # updates the image, never the spec.
 #
-# Mirrored at infra/k8s/pia/pia.yaml for cross-repo discoverability;
+# Mirrored at infra/k8s/webshare/webshare.yaml for cross-repo discoverability;
 # this file is the source of truth (CI applies it).
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: pia-data
+  name: webshare-data
   namespace: default
 spec:
   accessModes:
@@ -24,10 +24,10 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: pia
+  name: webshare
   namespace: default
   labels:
-    app: pia
+    app: webshare
 spec:
   replicas: 1
   # SQLite 单写者：升级时先停旧 Pod 再起新 Pod，避免抢占 RWO PVC。
@@ -35,11 +35,11 @@ spec:
     type: Recreate
   selector:
     matchLabels:
-      app: pia
+      app: webshare
   template:
     metadata:
       labels:
-        app: pia
+        app: webshare
     spec:
       securityContext:
         # Container runs as uid 1000 (alpine appuser). Longhorn-provisioned
@@ -47,7 +47,7 @@ spec:
         # non-root process can write master.key / SQLite files into /data.
         fsGroup: 1000
       containers:
-        - name: pia
+        - name: webshare
           image: docker.test4x.com/xgfan/pia:latest
           imagePullPolicy: Always
           ports:
@@ -83,16 +83,16 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: pia-data
+            claimName: webshare-data
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: pia
+  name: webshare
   namespace: default
 spec:
   selector:
-    app: pia
+    app: webshare
   ports:
     - port: 80
       targetPort: 9090
@@ -104,14 +104,14 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: pia-proxy
+  name: webshare-proxy
   namespace: default
   annotations:
     metallb.io/loadBalancerIPs: 192.168.2.241
 spec:
   type: LoadBalancer
   selector:
-    app: pia
+    app: webshare
   ports:
     - name: proxy
       protocol: TCP
@@ -121,7 +121,7 @@ spec:
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: pia
+  name: webshare
   namespace: default
   annotations:
     cert-manager.io/cluster-issuer: cf-dns-issuer
@@ -140,6 +140,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: pia
+                name: webshare
                 port:
                   number: 80

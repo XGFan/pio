@@ -40,9 +40,9 @@ steps:
       # in the manifest that omit a namespace would otherwise be created
       # in the wrong place and Traefik would see two ingresses.
       - kubectl apply -n default -f deploy/k8s.yaml
-      - kubectl set image deployment/pia pia=docker.test4x.com/xgfan/pia:$(echo $CI_COMMIT_SHA | cut -c1-8) -n default
+      - kubectl set image deployment/webshare webshare=docker.test4x.com/xgfan/pia:$(echo $CI_COMMIT_SHA | cut -c1-8) -n default
       # Block until the new ReplicaSet is fully rolled out (or fail CI).
-      - kubectl rollout status deployment/pia -n default --timeout=180s
+      - kubectl rollout status deployment/webshare -n default --timeout=180s
       - rm -f /tmp/kubeconfig
     environment:
       KUBECONFIG_DATA:
