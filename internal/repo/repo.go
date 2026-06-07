@@ -9,8 +9,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/crypto"
-	"github.com/guofan/webshare-proxy/internal/model"
+	"github.com/guofan/pia/internal/crypto"
+	"github.com/guofan/pia/internal/model"
 )
 
 // ErrNotFound is returned when a lookup by primary key finds no row.

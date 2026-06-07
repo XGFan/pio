@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/model"
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/tunnel"
+	"github.com/guofan/pia/internal/model"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/tunnel"
 )
 
 // startSOCKS5Stub spins up an in-process server that accepts the canonical

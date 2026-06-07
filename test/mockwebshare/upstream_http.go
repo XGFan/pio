@@ -1,5 +1,5 @@
 // Package mockwebshare provides test doubles for the webshare.io services
-// that webshare-proxyd talks to: the v2 list API, the CONNECT-capable HTTP
+// that piad talks to: the v2 list API, the CONNECT-capable HTTP
 // proxy, the optional native SOCKS5 proxy, and a plain TCP echo target
 // used as the "origin" in end-to-end integration tests.
 //

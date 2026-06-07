@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/guofan/webshare-proxy/internal/crypto"
-	"github.com/guofan/webshare-proxy/internal/model"
+	"github.com/guofan/pia/internal/crypto"
+	"github.com/guofan/pia/internal/model"
 )
 
 // universalProxyPasswordAAD is the AAD for the settings.universal_proxy_password_enc

@@ -7,7 +7,7 @@ import (
 	"strconv"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/guofan/webshare-proxy/internal/repo"
+	"github.com/guofan/pia/internal/repo"
 )
 
 // ErrNotWebshareUpstream is returned by the ReplaceUpstream closure when the

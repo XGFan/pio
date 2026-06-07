@@ -1,4 +1,4 @@
-module github.com/guofan/webshare-proxy
+module github.com/guofan/pia
 
 go 1.26.3
 

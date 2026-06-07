@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/store"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/store"
 )
 
 func TestUniversalProxyPassword_RoundTrip(t *testing.T) {

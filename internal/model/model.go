@@ -1,5 +1,5 @@
 // Package model defines the persistent and in-memory data types for the
-// webshare-proxy daemon. Field semantics and storage decisions follow
+// pia daemon. Field semantics and storage decisions follow
 // .omc/plans/webshare-v4.1.md §3.
 package model
 
@@ -7,7 +7,7 @@ import "time"
 
 // ApiKey is one webshare.io account credential. The API key value itself is
 // stored AES-256-GCM-encrypted in EncryptedKey; the master key lives in
-// ~/Library/Application Support/webshare-proxy/master.key (mode 0600).
+// ~/Library/Application Support/pia/master.key (mode 0600).
 type ApiKey struct {
 	ID            int64
 	Label         string

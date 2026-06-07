@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guofan/webshare-proxy/internal/api"
-	"github.com/guofan/webshare-proxy/internal/repo"
+	"github.com/guofan/pia/internal/api"
+	"github.com/guofan/pia/internal/repo"
 )
 
 // replaceServer builds an api.Server whose ReplaceUpstream/WebshareReplaceOptions

@@ -24,9 +24,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/model"
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/routing"
+	"github.com/guofan/pia/internal/model"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/routing"
 )
 
 // Sentinel errors returned by Acquire. HTTP listener maps these to 407/502;
@@ -175,7 +175,7 @@ func (m *Manager) MeasureLatency(ctx context.Context, upstream *model.UpstreamPr
 
 	req := "GET " + latencyPath + " HTTP/1.1\r\n" +
 		"Host: www.gstatic.com\r\n" +
-		"User-Agent: webshare-proxy-latency\r\n" +
+		"User-Agent: pia-latency\r\n" +
 		"Connection: close\r\n\r\n"
 	if _, err := io.WriteString(conn, req); err != nil {
 		return 0, fmt.Errorf("latency write: %w", err)

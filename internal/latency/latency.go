@@ -7,8 +7,8 @@ import (
 	"context"
 	"sync"
 
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/tunnel"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/tunnel"
 )
 
 // Result is one upstream's probe outcome. LatencyMS is valid only when OK.

@@ -13,8 +13,8 @@ const DataDBName = "data.db"
 // DefaultDataDir returns the per-OS default location for the daemon's
 // persistent state.
 //
-//   - darwin: $HOME/Library/Application Support/webshare-proxy
-//   - linux/others: $XDG_CONFIG_HOME/webshare-proxy if set, else $HOME/.config/webshare-proxy
+//   - darwin: $HOME/Library/Application Support/pia
+//   - linux/others: $XDG_CONFIG_HOME/pia if set, else $HOME/.config/pia
 //
 // The directory is not created here; openDB does that.
 func DefaultDataDir() (string, error) {
@@ -24,12 +24,12 @@ func DefaultDataDir() (string, error) {
 	}
 	switch runtime.GOOS {
 	case "darwin":
-		return filepath.Join(home, "Library", "Application Support", "webshare-proxy"), nil
+		return filepath.Join(home, "Library", "Application Support", "pia"), nil
 	default:
 		if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-			return filepath.Join(xdg, "webshare-proxy"), nil
+			return filepath.Join(xdg, "pia"), nil
 		}
-		return filepath.Join(home, ".config", "webshare-proxy"), nil
+		return filepath.Join(home, ".config", "pia"), nil
 	}
 }
 

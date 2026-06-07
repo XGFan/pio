@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/auth"
-	"github.com/guofan/webshare-proxy/internal/registry"
-	"github.com/guofan/webshare-proxy/internal/tunnel"
+	"github.com/guofan/pia/internal/auth"
+	"github.com/guofan/pia/internal/registry"
+	"github.com/guofan/pia/internal/tunnel"
 )
 
 // sniffDeadline bounds how long we wait for a freshly-accepted connection to

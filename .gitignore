@@ -1,6 +1,6 @@
 # Build artifacts
-/webshare-proxyd
-/cmd/webshare-proxyd/webshare-proxyd
+/piad
+/cmd/piad/piad
 /build/
 /dist/
 *.test
@@ -8,8 +8,8 @@
 coverage.txt
 
 # Swift / SwiftPM build cache (per-user, gigabytes)
-ui/WebshareProxy/.build/
-ui/WebshareProxy/Package.resolved
+ui/PIA/.build/
+ui/PIA/Package.resolved
 
 # Local data dirs (in case tests or dev runs drop them in-tree)
 /data/
@@ -27,7 +27,7 @@ api.port
 .omc/project-memory.json
 .omc/notepad.md
 .omc/webshare-web-password.txt
-ui/WebshareProxy/.omc/
+ui/PIA/.omc/
 .playwright-cli/
 
 # Per-user MCP config (may contain API keys)

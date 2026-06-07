@@ -10,10 +10,10 @@ import (
 
 // AADPrefix is bound into every encrypted column so that ciphertext from
 // one column cannot be transplanted into another and decrypted there.
-const AADPrefix = "webshare-proxy/v1/"
+const AADPrefix = "pia/v1/"
 
 // ColumnAAD returns the canonical AAD for an encrypted column.
-// Example: ColumnAAD("api_keys.encrypted_key") -> []byte("webshare-proxy/v1/api_keys.encrypted_key").
+// Example: ColumnAAD("api_keys.encrypted_key") -> []byte("pia/v1/api_keys.encrypted_key").
 func ColumnAAD(columnName string) []byte {
 	return []byte(AADPrefix + columnName)
 }

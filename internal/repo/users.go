@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/model"
+	"github.com/guofan/pia/internal/model"
 )
 
 // InsertLocalUser stores a new (username, plaintext-password) pair with no

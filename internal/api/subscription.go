@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/guofan/webshare-proxy/internal/repo"
+	"github.com/guofan/pia/internal/repo"
 )
 
 // SubscriptionHandler returns the public GET /subscription handler so the web

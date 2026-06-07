@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guofan/webshare-proxy/internal/crypto"
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/store"
-	"github.com/guofan/webshare-proxy/internal/webshare"
+	"github.com/guofan/pia/internal/crypto"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/store"
+	"github.com/guofan/pia/internal/webshare"
 )
 
 // fakeFetcher returns canned data for ListProxies. Each test constructs one

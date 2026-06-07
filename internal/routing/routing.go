@@ -27,8 +27,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/model"
-	"github.com/guofan/webshare-proxy/internal/repo"
+	"github.com/guofan/pia/internal/model"
+	"github.com/guofan/pia/internal/repo"
 )
 
 // CancelGroup is the cancellation primitive shared by all connections

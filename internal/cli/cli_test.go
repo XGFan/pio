@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/guofan/webshare-proxy/internal/sync"
-	"github.com/guofan/webshare-proxy/internal/webshare"
+	"github.com/guofan/pia/internal/sync"
+	"github.com/guofan/pia/internal/webshare"
 )
 
 // fixtureProxies is the canned data the mock webshare API serves across

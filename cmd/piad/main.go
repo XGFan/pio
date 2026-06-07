@@ -1,4 +1,4 @@
-// Command webshare-proxyd is the daemon for the Webshare Proxy Gateway.
+// Command piad is the daemon for the PIA Gateway.
 // Phase 1 exposes only setup-side subcommands: version, add-key, sync.
 // Listeners and the REST API arrive in later phases.
 package main
@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/guofan/webshare-proxy/internal/cli"
+	"github.com/guofan/pia/internal/cli"
 )
 
 func main() {

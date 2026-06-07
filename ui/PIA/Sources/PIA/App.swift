@@ -5,16 +5,16 @@ import AppKit
 import SwiftUI
 
 @main
-struct WebshareProxyApp: App {
+struct PIAApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
     var body: some Scene {
-        MenuBarExtra("Webshare Proxy", systemImage: "network") {
+        MenuBarExtra("PIA", systemImage: "network") {
             MenuContent().environmentObject(AppState.shared)
         }
         .menuBarExtraStyle(.menu)
 
-        Window("Webshare Proxy", id: "main") {
+        Window("PIA", id: "main") {
             MainWindow().environmentObject(AppState.shared)
         }
         .windowResizability(.contentSize)
@@ -23,7 +23,7 @@ struct WebshareProxyApp: App {
 }
 
 // AppDelegate owns the single AppState instance and handles
-// `webshareproxy://show` URLs reliably regardless of whether the SwiftUI
+// `pia://show` URLs reliably regardless of whether the SwiftUI
 // scene has materialized yet. Owning AppState here avoids the SwiftUI
 // @StateObject-on-App pitfall where the object can be reinitialized as
 // scenes recompute, leaving views bound to a non-bootstrapped state.
@@ -35,7 +35,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        for url in urls where url.scheme == "webshareproxy" && url.host == "show" {
+        for url in urls where url.scheme == "pia" && url.host == "show" {
             relocateMainWindowToCursorScreen()
         }
     }
@@ -44,7 +44,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let cursor = NSEvent.mouseLocation
         Task { @MainActor in
             for _ in 0..<40 {
-                if let w = NSApp.windows.first(where: { $0.title == "Webshare Proxy" }) {
+                if let w = NSApp.windows.first(where: { $0.title == "PIA" }) {
                     let target = NSScreen.screens.first(where: { $0.frame.contains(cursor) }) ?? NSScreen.main
                     if let f = target?.visibleFrame {
                         let origin = NSPoint(

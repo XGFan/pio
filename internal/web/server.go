@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	cookieName    = "webshare_session"
+	cookieName    = "pia_session"
 	sessionTTL    = 24 * time.Hour
 	loginMinDelay = 200 * time.Millisecond
 )

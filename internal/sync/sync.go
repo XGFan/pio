@@ -13,9 +13,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/crypto"
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/webshare"
+	"github.com/guofan/pia/internal/crypto"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/webshare"
 )
 
 const upstreamPasswordAAD = "upstream_proxies.encrypted_password"

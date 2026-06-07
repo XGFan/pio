@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/model"
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/tunnel"
+	"github.com/guofan/pia/internal/model"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/tunnel"
 )
 
 // startEcho spins a plain TCP echo server and returns its address.

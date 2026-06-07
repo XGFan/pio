@@ -10,7 +10,7 @@ RUN go mod download
 
 COPY . .
 
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o webshare-proxyd ./cmd/webshare-proxyd
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o piad ./cmd/piad
 
 # Runtime stage
 FROM alpine:3.21
@@ -22,7 +22,7 @@ RUN addgroup -g 1000 -S appgroup && \
 
 WORKDIR /app
 
-COPY --from=builder /build/webshare-proxyd /app/webshare-proxyd
+COPY --from=builder /build/piad /app/piad
 
 RUN mkdir -p /data && chown -R appuser:appgroup /app /data
 
@@ -31,5 +31,5 @@ USER appuser
 EXPOSE 9090
 EXPOSE 8080
 
-ENTRYPOINT ["/app/webshare-proxyd"]
+ENTRYPOINT ["/app/piad"]
 CMD ["run", "--data-dir", "/data", "--web-bind", "0.0.0.0:9090"]

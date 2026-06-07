@@ -1,23 +1,23 @@
-# Controlling WebshareProxy with Claude Code computer-use
+# Controlling PIA with Claude Code computer-use
 
 This document captures what was verified empirically on 2026-05-17 about
-making `/Applications/WebshareProxy.app` (bundle ID `com.guofan.webshare-proxy`)
+making `/Applications/PIA.app` (bundle ID `com.test4x.pia`)
 controllable from Claude Code's `mcp__computer-use__*` tools.
 
 ## TL;DR
 
-To control WebshareProxy via computer-use:
+To control PIA via computer-use:
 
 ```sh
-WEBSHARE_NO_LSUIELEMENT=1 ./scripts/build-app.sh
-pkill -x WebshareProxy; pkill -x webshare-proxyd
-rm -rf /Applications/WebshareProxy.app
-cp -R dist/WebshareProxy.app /Applications/
-/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f /Applications/WebshareProxy.app
-open /Applications/WebshareProxy.app
+PIA_NO_LSUIELEMENT=1 ./scripts/build-app.sh
+pkill -x PIA; pkill -x piad
+rm -rf /Applications/PIA.app
+cp -R dist/PIA.app /Applications/
+/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister -f /Applications/PIA.app
+open /Applications/PIA.app
 ```
 
-Then in Claude Code: `request_access(["WebshareProxy"])`.
+Then in Claude Code: `request_access(["PIA"])`.
 
 To restore the production menu-bar-only build:
 
@@ -43,7 +43,7 @@ Verified on this machine against the in-prompt `installed-apps` list:
 | Sample | LSUIElement | spctl | In allowlist |
 |---|---|---|---|
 | iTerm, kitty, Cherry Studio, Notion, Antigravity, Codex, Zed, Discord, Telegram, Typora, IINA, CleanMyMac, QQ, Setapp, Helium, Stay, Wireshark | no | various | yes (14/14 sampled) |
-| Amphetamine, Background Music, BetterDisplay, JetBrains Toolbox, OpenInTerminal-Lite, Raycast, SoundSource, Spokenly, Tailscale, TaskTab, TinyViewer, VirtualHere*, Windows App, WebshareProxy (pre-fix) | **yes** | various | **no** (14/14 sampled) |
+| Amphetamine, Background Music, BetterDisplay, JetBrains Toolbox, OpenInTerminal-Lite, Raycast, SoundSource, Spokenly, Tailscale, TaskTab, TinyViewer, VirtualHere*, Windows App, PIA (pre-fix) | **yes** | various | **no** (14/14 sampled) |
 | chiaki-ng | no | **rejected** | yes |
 | KedaManga, ProxMobo, XLD | no | **rejected** | yes |
 | Codex | no | cert **revoked** | yes |
@@ -56,23 +56,23 @@ Apple Numbers — looks like bundle-ID dedupe).
 
 ## Request_access mechanics
 
-- **Name lookup**: pass the bundle's `CFBundleName` (e.g. `"WebshareProxy"`),
-  not `CFBundleDisplayName` (`"Webshare Proxy"`) and not the bundle ID. If
+- **Name lookup**: pass the bundle's `CFBundleName` (e.g. `"PIA"`),
+  not `CFBundleDisplayName` (`"PIA"`) and not the bundle ID. If
   you guess wrong it returns `didYouMean` with the canonical name.
 - **Snapshot refresh**: the allowlist is **not** strictly frozen at SDK
   startup. Re-registering via `lsregister -f <app>` plus relaunching the app
   is sufficient for `request_access` to pick up changes mid-session. (No need
   to quit Claude Desktop.)
-- **Granted tier**: `"full"` for WebshareProxy after the fix — clicks, keys,
+- **Granted tier**: `"full"` for PIA after the fix — clicks, keys,
   drags all work.
 
 ## Why LSUIElement was originally set
 
-WebshareProxy is designed as a menu-bar-only app: see
-`ui/WebshareProxy/Sources/WebshareProxy/App.swift`. The Info.plist
+PIA is designed as a menu-bar-only app: see
+`ui/PIA/Sources/PIA/App.swift`. The Info.plist
 `LSUIElement = true` keeps it out of the Dock and Cmd-Tab switcher.
 
-When `WEBSHARE_NO_LSUIELEMENT=1` is set, `scripts/build-app.sh` omits that
+When `PIA_NO_LSUIELEMENT=1` is set, `scripts/build-app.sh` omits that
 key. The app then shows in the Dock and behaves as a normal foreground app,
 with the menu-bar extra still working as before. Quit and reopen the app for
 the change to take effect.
@@ -82,7 +82,7 @@ the change to take effect.
 The main window does **not** auto-open on launch — it has to be opened
 explicitly. Three working paths:
 
-1. **Window menu → "Webshare Proxy"**: with the app frontmost, click the
+1. **Window menu → "PIA"**: with the app frontmost, click the
    `Window` menu in the system menu bar. The window definition is listed at
    the bottom; clicking it opens the window. (Earlier failures were caused
    by clicking before the menu was fully open.)
@@ -105,14 +105,14 @@ Below it are the `Webshare` API-keys section (empty by default) and a
 The Mac has three displays (`Built-in Retina Display`, `Mi Monitor`,
 `U2777B`). `mcp__computer-use__screenshot` only captures one at a time —
 use `switch_display` to navigate. The menu-bar extras live on the primary
-display only. The first `cmd+N` attempt to open the WebshareProxy window
+display only. The first `cmd+N` attempt to open the PIA window
 likely succeeded but on a different display than the one being captured;
 the second pass via `Window` menu put it on the active display.
 
 ## What was changed in this repo
 
 - `scripts/build-app.sh`:
-  - Added `WEBSHARE_NO_LSUIELEMENT` env-var support (omits `LSUIElement`
+  - Added `PIA_NO_LSUIELEMENT` env-var support (omits `LSUIElement`
     when set).
   - Replaced the misleading "Developer ID Application required for
     computer-use" comments with the actual rule.

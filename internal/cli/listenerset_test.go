@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/auth"
-	"github.com/guofan/webshare-proxy/internal/registry"
-	"github.com/guofan/webshare-proxy/internal/routing"
-	"github.com/guofan/webshare-proxy/internal/tunnel"
+	"github.com/guofan/pia/internal/auth"
+	"github.com/guofan/pia/internal/registry"
+	"github.com/guofan/pia/internal/routing"
+	"github.com/guofan/pia/internal/tunnel"
 )
 
 // TestReconfigure_SameBindNoOp documents the no-op short-circuit and is the

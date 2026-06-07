@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/guofan/webshare-proxy/internal/auth"
-	"github.com/guofan/webshare-proxy/internal/listener"
-	"github.com/guofan/webshare-proxy/internal/registry"
-	"github.com/guofan/webshare-proxy/internal/tunnel"
+	"github.com/guofan/pia/internal/auth"
+	"github.com/guofan/pia/internal/listener"
+	"github.com/guofan/pia/internal/registry"
+	"github.com/guofan/pia/internal/tunnel"
 )
 
 // listenerSet is the unified-proxy listener lifecycle manager. The HTTP and

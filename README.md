@@ -1,4 +1,4 @@
-# webshare-proxy
+# PIA — Proxies In One
 
 A self-hosted forward-proxy manager. It keeps a pool of upstream proxies —
 synced from [Webshare](https://www.webshare.io/) API keys and/or added
@@ -6,7 +6,7 @@ manually — and exposes them locally through a single port that speaks **both
 HTTP and SOCKS5**. Clients authenticate with credentials the daemon owns; the
 daemon rewrites auth and tunnels each connection to the chosen upstream.
 
-It ships as a Go daemon (`webshare-proxyd`) with two admin surfaces: a macOS
+It ships as a Go daemon (`piad`) with two admin surfaces: a macOS
 menu-bar app and an optional cookie-protected LAN web panel.
 
 ## Features
@@ -63,50 +63,50 @@ menu-bar app and an optional cookie-protected LAN web panel.
   public: GET /subscription (query-param auth only)
 ```
 
-- `cmd/webshare-proxyd` — the daemon entry point.
+- `cmd/piad` — the daemon entry point.
 - `internal/listener` — the unified HTTP/SOCKS5 listener and per-protocol handlers.
 - `internal/tunnel` — credential resolution (`Acquire`) and upstream dialing.
 - `internal/routing` — the immutable in-memory routing snapshot (COW/RCU swap).
 - `internal/repo` / `internal/store` — SQLite access and embedded migrations.
 - `internal/api` — the JSON REST surface (loopback, used by the macOS app).
 - `internal/web` — the LAN web admin panel (cookie auth) + public `/subscription`.
-- `ui/WebshareProxy` — the macOS SwiftUI menu-bar app.
+- `ui/PIA` — the macOS SwiftUI menu-bar app.
 
 ## Running
 
 Build and run the daemon:
 
 ```sh
-go build -o webshare-proxyd ./cmd/webshare-proxyd
+go build -o piad ./cmd/piad
 
 # Loopback-only (macOS app talks to the unauthenticated loopback API):
-./webshare-proxyd run --data-dir ./data
+./piad run --data-dir ./data
 
 # Also expose the LAN web admin panel:
-WEBSHARE_WEB_PASSWORD=secret ./webshare-proxyd run \
+PIA_WEB_PASSWORD=secret ./piad run \
   --data-dir ./data --web-bind 0.0.0.0:9090
 ```
 
 ### CLI
 
 ```
-webshare-proxyd version
-webshare-proxyd add-key --label=<s> --key=<sk_...> [--data-dir=<path>]
-webshare-proxyd sync    --key-id=<id>              [--data-dir=<path>]
-webshare-proxyd run     [--data-dir=<path>] [--web-bind=<addr>] [--web-password=<s>]
+piad version
+piad add-key --label=<s> --key=<sk_...> [--data-dir=<path>]
+piad sync    --key-id=<id>              [--data-dir=<path>]
+piad run     [--data-dir=<path>] [--web-bind=<addr>] [--web-password=<s>]
 ```
 
 - `--web-bind` — serve the web panel on this address (disabled when empty).
 - `--web-password` — required when `--web-bind` is set; prefer the
-  `$WEBSHARE_WEB_PASSWORD` env var to keep it out of the process list.
+  `$PIA_WEB_PASSWORD` env var to keep it out of the process list.
 
 ### Environment overrides (for declarative deploys)
 
 | Variable | Effect |
 | --- | --- |
-| `WEBSHARE_WEB_PASSWORD` | Web admin panel password (alternative to `--web-password`). |
-| `WEBSHARE_PROXY_BIND` | Force the proxy listener bind address (e.g. `0.0.0.0`); persisted back to the DB on boot. |
-| `WEBSHARE_PROXY_AUTOSTART` | `true`/`1` starts the proxy listener on boot. |
+| `PIA_WEB_PASSWORD` | Web admin panel password (alternative to `--web-password`). |
+| `PIA_PROXY_BIND` | Force the proxy listener bind address (e.g. `0.0.0.0`); persisted back to the DB on boot. |
+| `PIA_PROXY_AUTOSTART` | `true`/`1` starts the proxy listener on boot. |
 
 ### Data directory & secrets
 
@@ -189,7 +189,7 @@ push to `master`.
 ```sh
 go build ./...
 go test ./...
-( cd ui/WebshareProxy && swift build )   # macOS app
+( cd ui/PIA && swift build )   # macOS app
 ```
 
 Migrations are plain `.sql` files under `internal/store/migrations/`, applied

@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/store"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/store"
 )
 
 // TestEnsureDirectUpstream_CreatesAndIsIdempotent verifies the built-in direct

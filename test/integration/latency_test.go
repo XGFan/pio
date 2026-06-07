@@ -11,11 +11,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/latency"
-	"github.com/guofan/webshare-proxy/internal/model"
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/routing"
-	"github.com/guofan/webshare-proxy/internal/tunnel"
+	"github.com/guofan/pia/internal/latency"
+	"github.com/guofan/pia/internal/model"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/routing"
+	"github.com/guofan/pia/internal/tunnel"
 )
 
 // fakeTunnelProxy is a minimal HTTP CONNECT proxy that ignores the requested

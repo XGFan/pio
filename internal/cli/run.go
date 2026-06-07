@@ -14,17 +14,17 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/api"
-	"github.com/guofan/webshare-proxy/internal/auth"
-	"github.com/guofan/webshare-proxy/internal/registry"
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/routing"
-	"github.com/guofan/webshare-proxy/internal/latency"
-	syncpkg "github.com/guofan/webshare-proxy/internal/sync"
-	"github.com/guofan/webshare-proxy/internal/tunnel"
-	"github.com/guofan/webshare-proxy/internal/web"
-	"github.com/guofan/webshare-proxy/internal/webshare"
-	"github.com/guofan/webshare-proxy/internal/ws"
+	"github.com/guofan/pia/internal/api"
+	"github.com/guofan/pia/internal/auth"
+	"github.com/guofan/pia/internal/registry"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/routing"
+	"github.com/guofan/pia/internal/latency"
+	syncpkg "github.com/guofan/pia/internal/sync"
+	"github.com/guofan/pia/internal/tunnel"
+	"github.com/guofan/pia/internal/web"
+	"github.com/guofan/pia/internal/webshare"
+	"github.com/guofan/pia/internal/ws"
 )
 
 // runDaemon is the long-running 'run' subcommand: opens DB, builds routing,
@@ -34,16 +34,16 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	fs.SetOutput(deps.Stderr)
 	dataDir := fs.String("data-dir", "", "override the default data directory")
 	webBind := fs.String("web-bind", "", "if non-empty, also serve the web admin panel on this addr (e.g. 0.0.0.0:9090)")
-	webPassword := fs.String("web-password", "", "password for the web admin panel; alternatively set $WEBSHARE_WEB_PASSWORD")
+	webPassword := fs.String("web-password", "", "password for the web admin panel; alternatively set $PIA_WEB_PASSWORD")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *webBind != "" {
-		if envPwd := os.Getenv("WEBSHARE_WEB_PASSWORD"); envPwd != "" {
+		if envPwd := os.Getenv("PIA_WEB_PASSWORD"); envPwd != "" {
 			*webPassword = envPwd
 		}
 		if *webPassword == "" {
-			fmt.Fprintln(deps.Stderr, "run: --web-bind requires --web-password (or $WEBSHARE_WEB_PASSWORD)")
+			fmt.Fprintln(deps.Stderr, "run: --web-bind requires --web-password (or $PIA_WEB_PASSWORD)")
 			return 2
 		}
 	}
@@ -67,10 +67,10 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	// Env-var overrides for declarative deployments (K8s, systemd). When
 	// set, they win over the persisted values and are written back to the
 	// DB so the web UI reflects the actual listener state.
-	if v := os.Getenv("WEBSHARE_PROXY_BIND"); v != "" {
+	if v := os.Getenv("PIA_PROXY_BIND"); v != "" {
 		settings.ProxyBind = v
 	}
-	if v := os.Getenv("WEBSHARE_PROXY_AUTOSTART"); v == "true" || v == "1" {
+	if v := os.Getenv("PIA_PROXY_AUTOSTART"); v == "true" || v == "1" {
 		settings.ProxyEnabled = true
 	}
 	if err := repo.UpdateSettings(ctx, db, settings); err != nil {
@@ -163,7 +163,7 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	}
 
 	running, proxyAddr := lset.Status()
-	fmt.Fprintf(deps.Stdout, "webshare-proxyd run: api=127.0.0.1:%d  proxy_running=%v  proxy=%s\n",
+	fmt.Fprintf(deps.Stdout, "piad run: api=127.0.0.1:%d  proxy_running=%v  proxy=%s\n",
 		port, running, proxyAddr)
 
 	apiSrv.Deps().ShutdownFn = cancelAll
@@ -323,7 +323,7 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 				"WARNING: web admin panel bound to %s is reachable from LAN; anyone on the LAN can attempt the password challenge.\n",
 				*webBind)
 		}
-		fmt.Fprintf(deps.Stdout, "webshare-proxyd web: http://%s (port=%d)\n", *webBind, webPort)
+		fmt.Fprintf(deps.Stdout, "piad web: http://%s (port=%d)\n", *webBind, webPort)
 		wg.Add(1)
 		go func() { defer wg.Done(); _ = webSrv.Serve(runCtx) }()
 	}

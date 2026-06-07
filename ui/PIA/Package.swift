@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "WebshareProxy",
+    name: "PIA",
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(
-            name: "WebshareProxy",
-            path: "Sources/WebshareProxy"
+            name: "PIA",
+            path: "Sources/PIA"
         )
     ]
 )

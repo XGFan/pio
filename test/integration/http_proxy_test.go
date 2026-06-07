@@ -18,13 +18,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guofan/webshare-proxy/internal/crypto"
-	"github.com/guofan/webshare-proxy/internal/listener"
-	"github.com/guofan/webshare-proxy/internal/repo"
-	"github.com/guofan/webshare-proxy/internal/routing"
-	"github.com/guofan/webshare-proxy/internal/store"
-	"github.com/guofan/webshare-proxy/internal/tunnel"
-	"github.com/guofan/webshare-proxy/test/mockwebshare"
+	"github.com/guofan/pia/internal/crypto"
+	"github.com/guofan/pia/internal/listener"
+	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pia/internal/routing"
+	"github.com/guofan/pia/internal/store"
+	"github.com/guofan/pia/internal/tunnel"
+	"github.com/guofan/pia/test/mockwebshare"
 )
 
 // scenario bundles every piece of plumbing an end-to-end test needs:
