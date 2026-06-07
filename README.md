@@ -24,8 +24,7 @@ menu-bar app and an optional cookie-protected LAN web panel.
     proxy password*; any client can then connect with
     `username = a proxy's display name` and `password = the universal
     password` to route through that specific proxy, no per-proxy user needed.
-    Only **alive** upstreams with an **unambiguous** display name are routable
-    this way.
+    Only upstreams with an **unambiguous** display name are routable this way.
 - **Upstream sources:** Webshare API keys (periodic sync of the proxy list)
   and manually-added HTTP / HTTPS / SOCKS5 proxies.
 - **Built-in `direct` upstream.** A reserved, always-present upstream named
@@ -34,7 +33,13 @@ menu-bar app and an optional cookie-protected LAN web panel.
   the universal password / subscription. See [Built-in `direct` upstream](#built-in-direct-upstream).
 - **Subscription endpoint.** When enabled (and a universal password is set),
   the daemon serves a public `GET /subscription?password=…` that returns a
-  SOCKS subscription list for proxy clients — one line per routable proxy.
+  subscription list for proxy clients — one line per routable proxy. A `type`
+  query parameter picks the line scheme: `socks`/`socks5`/omitted → SOCKS,
+  `type=http` → HTTP-proxy lines.
+- **Chrome extension.** A Manifest V3 browser extension ([`extension/`](extension/))
+  that consumes a subscription URL, lists the proxies, and applies a chosen one
+  browser-wide — authenticating it automatically via
+  `chrome.webRequest.onAuthRequired`. See [`extension/README.md`](extension/README.md).
 - **Hot-switch routing.** Remapping a user or editing/deleting an upstream
   tears down in-flight connections to the old target within ~1 TCP RTT.
 - **Encrypted at rest.** API keys, upstream passwords, and the universal
@@ -71,6 +76,7 @@ menu-bar app and an optional cookie-protected LAN web panel.
 - `internal/api` — the JSON REST surface (loopback, used by the macOS app).
 - `internal/web` — the LAN web admin panel (cookie auth) + public `/subscription`.
 - `ui/PIA` — the macOS SwiftUI menu-bar app.
+- `extension/` — the Chrome (MV3) browser proxy-switcher extension.
 
 ## Running
 
