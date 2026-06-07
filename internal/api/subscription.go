@@ -20,13 +20,24 @@ func (s *Server) SubscriptionHandler() http.HandlerFunc {
 	return s.subscriptionHandler
 }
 
-// subscriptionHandler serves the SOCKS subscription list. It exists only when
+// subscriptionHandler serves the subscription list. It exists only when
 // subscription is enabled AND a universal password is set; otherwise it 404s
 // so its presence leaks nothing. One line per ROUTABLE proxy — exactly the
 // universal-password routing set (unambiguous display name) taken from
-// the live routing snapshot:
+// the live routing snapshot.
 //
-//	socks://{display-name}:{universal-password}@{subscription-host}:{mixed-port}#{display-name}
+// The line scheme is selected by the ?type= query parameter:
+//
+//	type=socks | type=socks5 | (omitted)
+//	    socks://{display-name}:{universal-password}@{subscription-host}:{mixed-port}#{display-name}
+//	type=http
+//	    http://{display-name}:{universal-password}@{subscription-host}:{mixed-port}#{display-name}
+//
+// Both schemes point at the SAME unified proxy port (it auto-detects the
+// protocol per connection from the first byte); only the URI scheme differs,
+// so HTTP-proxy-only clients (e.g. the Chrome extension, which needs
+// onAuthRequired credentials Chrome cannot supply for SOCKS) can consume the
+// same routing set.
 func (s *Server) subscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	st, err := repo.LoadSettings(r.Context(), s.deps.DB)
 	if err != nil {
@@ -71,6 +82,14 @@ func (s *Server) subscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	authority := net.JoinHostPort(host, strconv.Itoa(st.ProxyPort))
 
+	// Scheme selection: "http" emits HTTP-proxy lines; "socks", "socks5", and
+	// the empty default all emit SOCKS lines (the historical behavior). Unknown
+	// values fall back to SOCKS so older/mistyped clients keep working.
+	scheme := "socks"
+	if strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("type")), "http") {
+		scheme = "http"
+	}
+
 	snap := s.deps.Core.Snapshot()
 	names := make([]string, 0)
 	if snap != nil {
@@ -83,7 +102,7 @@ func (s *Server) subscriptionHandler(w http.ResponseWriter, r *http.Request) {
 	var b strings.Builder
 	for _, name := range names {
 		line := url.URL{
-			Scheme:   "socks",
+			Scheme:   scheme,
 			User:     url.UserPassword(name, universal),
 			Host:     authority,
 			Fragment: name,

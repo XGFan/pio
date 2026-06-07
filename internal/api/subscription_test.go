@@ -141,6 +141,36 @@ func TestSubscription_RoutableProxiesOnly(t *testing.T) {
 	}
 }
 
+// TestSubscription_TypeParam verifies the ?type= scheme switch: http yields
+// http:// lines, while socks/socks5/empty/unknown all yield the historical
+// socks:// lines pointing at the same authority.
+func TestSubscription_TypeParam(t *testing.T) {
+	h := buildSubServer(t, true, "masterpw")
+
+	cases := []struct {
+		query string
+		want  string
+	}{
+		{"/subscription?password=masterpw", "socks://US-A-01:masterpw@proxy.example.com:8080#US-A-01"},
+		{"/subscription?password=masterpw&type=socks", "socks://US-A-01:masterpw@proxy.example.com:8080#US-A-01"},
+		{"/subscription?password=masterpw&type=socks5", "socks://US-A-01:masterpw@proxy.example.com:8080#US-A-01"},
+		{"/subscription?password=masterpw&type=HTTP", "http://US-A-01:masterpw@proxy.example.com:8080#US-A-01"},
+		{"/subscription?password=masterpw&type=http", "http://US-A-01:masterpw@proxy.example.com:8080#US-A-01"},
+		{"/subscription?password=masterpw&type=bogus", "socks://US-A-01:masterpw@proxy.example.com:8080#US-A-01"},
+	}
+	for _, tc := range cases {
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, httptest.NewRequest(http.MethodGet, tc.query, nil))
+		if rr.Code != 200 {
+			t.Fatalf("%s → status %d, want 200", tc.query, rr.Code)
+		}
+		body := strings.TrimSpace(rr.Body.String())
+		if body != tc.want {
+			t.Errorf("%s → %q, want %q", tc.query, body, tc.want)
+		}
+	}
+}
+
 func TestSubscription_WrongPassword401(t *testing.T) {
 	h := buildSubServer(t, true, "masterpw")
 	for _, q := range []string{"/subscription?password=nope", "/subscription"} {

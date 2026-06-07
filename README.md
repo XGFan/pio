@@ -159,22 +159,36 @@ When **subscription is enabled** and a **universal password is set**, the web
 server exposes:
 
 ```
-GET /subscription?password=<universal-password>
+GET /subscription?password=<universal-password>&type=<socks|socks5|http>
 ```
 
 - Authentication is the `password` query parameter only — **no cookie**.
   Wrong/missing password → `401`; the endpoint returns `404` when disabled or
   no universal password is set. Failed attempts are rate-limited per IP by the
   shared deny-list (10 failures / 60s → 5-minute ban).
+- The optional `type` parameter selects the line scheme. `socks`, `socks5`, and
+  the omitted default all emit SOCKS lines; `http` emits HTTP-proxy lines. Both
+  point at the **same** unified proxy port (it auto-detects the protocol from
+  the first byte per connection) — only the URI scheme differs.
 - Response is `text/plain`, one line per routable proxy:
 
   ```
+  # type=socks | type=socks5 | (omitted)
   socks://{display-name}:{universal-password}@{subscription-host}:{mixed-port}#{display-name}
+
+  # type=http
+  http://{display-name}:{universal-password}@{subscription-host}:{mixed-port}#{display-name}
   ```
 
 The web panel's **Subscription** card has a "Copy subscription URL" button
 that yields the full URL (including `?password=`), built from the panel's own
 origin (where `/subscription` is served).
+
+The `type=http` form exists for clients that can only use authenticated HTTP
+proxies — notably the **Chrome extension** under [`extension/`](extension/),
+which applies a chosen proxy browser-wide and supplies the per-proxy
+credentials via `chrome.webRequest.onAuthRequired` (Chrome cannot authenticate
+SOCKS proxies). See [`extension/README.md`](extension/README.md).
 
 ## Deployment
 
