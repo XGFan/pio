@@ -234,12 +234,6 @@ body {
   text-overflow: ellipsis;
 }
 
-.proxy-endpoint {
-  font-size: 11px;
-  color: var(--text-dim);
-  white-space: nowrap;
-}
-
 .check {
   color: var(--green);
   font-weight: 700;

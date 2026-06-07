@@ -18,11 +18,8 @@ const STORAGE_KEY = 'activeProxy';
 const credentialedRequests = new Set();
 
 // applyProxy persists the selected proxy and points the whole browser at it.
-// subId records which subscription it came from so the popup can highlight the
-// active row; it is written in the SAME set() as the credentials (single
-// writer) to avoid an inconsistent intermediate state.
-async function applyProxy(proxy, subId) {
-  await chrome.storage.local.set({ [STORAGE_KEY]: { ...proxy, subId } });
+async function applyProxy(proxy) {
+  await chrome.storage.local.set({ [STORAGE_KEY]: proxy });
   await chrome.proxy.settings.set({
     scope: 'regular',
     value: {
@@ -102,7 +99,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
   (async () => {
     try {
       if (msg && msg.type === 'applyProxy') {
-        await applyProxy(msg.proxy, msg.subId);
+        await applyProxy(msg.proxy);
         sendResponse({ ok: true });
       } else if (msg && msg.type === 'setDirect') {
         await clearProxy();

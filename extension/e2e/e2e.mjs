@@ -44,9 +44,12 @@ async function main() {
   let sawTypeHttp = false;
 
   // (1) Subscription server — emits one http-proxy line pointing at our proxy.
+  // Returns a different proxy name when the URL carries "v2", so the test can
+  // prove a second subscription URL REPLACES the first (single-subscription).
   const subServer = http.createServer((req, res) => {
     if (req.url.includes('type=http')) sawTypeHttp = true;
-    const line = `http://${encodeURIComponent(USER)}:${encodeURIComponent(PASS)}@127.0.0.1:${proxyPort}#${USER}`;
+    const name = req.url.includes('v2') ? 'US-B-02' : USER;
+    const line = `http://${encodeURIComponent(name)}:${encodeURIComponent(PASS)}@127.0.0.1:${proxyPort}#${name}`;
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end(line + '\n');
   });
@@ -99,6 +102,16 @@ async function main() {
     assert(proxyName.trim() === USER, `proxy "${USER}" listed in popup`);
     assert(sawTypeHttp, 'subscription was fetched with ?type=http');
 
+    // Proxy rows must NOT show the type/scheme or host:port.
+    assert((await popup.$('.proxy-endpoint')) === null, 'no proxy-endpoint element rendered');
+    const rowText = (await popup.textContent('.proxy')).trim();
+    assert(
+      !rowText.includes(String(proxyPort)) &&
+        !rowText.includes('127.0.0.1') &&
+        !/\bhttp\b/i.test(rowText),
+      'proxy row hides scheme and host:port',
+    );
+
     await popup.click('.proxy-btn');
     await popup.waitForSelector('.proxy.selected', { timeout: 5000 });
     assert(true, 'proxy row marked selected after click');
@@ -119,6 +132,10 @@ async function main() {
     assert(stored.activeProxy?.username === USER, 'active username persisted');
     assert(stored.activeProxy?.password === PASS, 'active password persisted (decoded)');
 
+    // Active bar shows the name only — no host:port.
+    const activeText = (await popup.textContent('#active-name')).trim();
+    assert(activeText === USER, 'active bar shows name only (no host:port)');
+
     // (5) Real traffic through the proxy succeeds ONLY via onAuthRequired creds.
     const target = await context.newPage();
     await target.goto('http://pia-e2e.test/hello', { timeout: 15000 });
@@ -135,6 +152,24 @@ async function main() {
       () => new Promise((r) => chrome.proxy.settings.get({}, r)),
     );
     assert(after.value?.mode === 'direct', 'browser returned to direct after Go direct');
+
+    // (7) A second subscription URL REPLACES the first (single subscription).
+    await popup.fill('#sub-url', `http://127.0.0.1:${subPort}/subscription?password=secret&v2=1`);
+    await popup.click('#add-form button[type="submit"]');
+    await popup.waitForFunction(
+      () => {
+        const names = [...document.querySelectorAll('.proxy-name')].map((e) => e.textContent.trim());
+        return names.length === 1 && names[0] === 'US-B-02';
+      },
+      { timeout: 10000 },
+    );
+    const subBlocks = await popup.$$eval('.sub', (els) => els.length);
+    assert(subBlocks === 1, 'only one subscription block after adding a second URL');
+    const allNames = await popup.$$eval('.proxy-name', (els) => els.map((e) => e.textContent.trim()));
+    assert(
+      allNames.length === 1 && allNames[0] === 'US-B-02' && !allNames.includes(USER),
+      'second subscription replaced the first (old proxy gone)',
+    );
 
     console.log('\nE2E PASSED ✅');
   } finally {

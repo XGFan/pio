@@ -1,5 +1,5 @@
-// Popup controller: manage subscriptions, render the proxy list, and tell the
-// service worker which proxy to apply. All durable state lives in
+// Popup controller: manage the single subscription, render the proxy list, and
+// tell the service worker which proxy to apply. All durable state lives in
 // chrome.storage.local; the popup re-renders from storage after every action so
 // the worker and popup never disagree.
 
@@ -22,13 +22,13 @@ const els = {
 let filterText = '';
 
 async function getState() {
-  const { subscriptions = [], activeProxy = null } =
-    await chrome.storage.local.get(['subscriptions', 'activeProxy']);
-  return { subscriptions, activeProxy };
+  const { subscription = null, activeProxy = null } =
+    await chrome.storage.local.get(['subscription', 'activeProxy']);
+  return { subscription, activeProxy };
 }
 
-async function setSubscriptions(subscriptions) {
-  await chrome.storage.local.set({ subscriptions });
+async function setSubscription(subscription) {
+  await chrome.storage.local.set({ subscription });
 }
 
 function showAddError(msg) {
@@ -36,7 +36,7 @@ function showAddError(msg) {
   els.addError.hidden = !msg;
 }
 
-// hostLabel renders a short, human-friendly label for a subscription source.
+// hostLabel renders a short, human-friendly label for the subscription source.
 function hostLabel(url) {
   try {
     return new URL(url).host;
@@ -45,8 +45,8 @@ function hostLabel(url) {
   }
 }
 
-// fetchSubscription pulls the HTTP-proxy list for one subscription and stores
-// the parsed proxies (or an error message) back into the subscription record.
+// fetchSubscription pulls the HTTP-proxy list and stores the parsed proxies (or
+// an error message) back into the subscription record.
 async function fetchSubscription(sub) {
   try {
     const res = await fetch(withType(sub.url, 'http'), { cache: 'no-store' });
@@ -69,6 +69,8 @@ async function fetchSubscription(sub) {
   }
 }
 
+// addSubscription sets (or replaces) the single subscription. Only one is
+// supported, so a new URL overwrites whatever was there before.
 async function addSubscription(rawUrl) {
   showAddError('');
   let normalized;
@@ -78,47 +80,33 @@ async function addSubscription(rawUrl) {
     showAddError('Enter a valid subscription URL.');
     return;
   }
-  const { subscriptions } = await getState();
-  if (subscriptions.some((s) => s.url === normalized)) {
-    showAddError('That subscription is already added.');
-    return;
-  }
-  const sub = {
-    id: crypto.randomUUID(),
-    url: normalized,
-    proxies: [],
-    error: '',
-  };
+  const sub = { url: normalized, proxies: [], error: '' };
   await fetchSubscription(sub);
-  subscriptions.push(sub);
-  await setSubscriptions(subscriptions);
+  await setSubscription(sub);
   els.subUrl.value = '';
   await render();
 }
 
-async function refreshSubscription(id) {
-  const { subscriptions } = await getState();
-  const sub = subscriptions.find((s) => s.id === id);
-  if (!sub) return;
-  await fetchSubscription(sub);
-  await setSubscriptions(subscriptions);
+async function refreshSubscription() {
+  const { subscription } = await getState();
+  if (!subscription) return;
+  await fetchSubscription(subscription);
+  await setSubscription(subscription);
   await render();
 }
 
-async function removeSubscription(id) {
-  const { subscriptions } = await getState();
-  await setSubscriptions(subscriptions.filter((s) => s.id !== id));
+async function removeSubscription() {
+  await setSubscription(null);
   await render();
 }
 
-async function selectProxy(subId, proxyId) {
-  const { subscriptions } = await getState();
-  const sub = subscriptions.find((s) => s.id === subId);
-  const proxy = sub && sub.proxies.find((p) => p.id === proxyId);
+async function selectProxy(proxyId) {
+  const { subscription } = await getState();
+  const proxy = subscription && subscription.proxies.find((p) => p.id === proxyId);
   if (!proxy) return;
-  // The worker writes activeProxy (with subId) in a single set(); the popup
-  // just re-renders from storage afterward.
-  const resp = await chrome.runtime.sendMessage({ type: 'applyProxy', proxy, subId });
+  // The worker writes activeProxy in a single set(); the popup just re-renders
+  // from storage afterward.
+  const resp = await chrome.runtime.sendMessage({ type: 'applyProxy', proxy });
   if (!resp || !resp.ok) {
     showAddError(`Could not apply proxy: ${resp ? resp.error : 'no response'}`);
     return;
@@ -137,25 +125,16 @@ async function goDirect() {
 
 function matchesFilter(proxy) {
   if (!filterText) return true;
-  const q = filterText.toLowerCase();
-  return (
-    proxy.name.toLowerCase().includes(q) ||
-    proxy.host.toLowerCase().includes(q) ||
-    String(proxy.port).includes(q)
-  );
+  return proxy.name.toLowerCase().includes(filterText.toLowerCase());
 }
 
-function renderProxy(sub, proxy, activeProxy) {
+function renderProxy(proxy, activeProxy) {
   const node = els.proxyTpl.content.firstElementChild.cloneNode(true);
-  const isActive =
-    activeProxy && activeProxy.subId === sub.id && activeProxy.id === proxy.id;
-  if (isActive) node.classList.add('selected');
+  if (activeProxy && activeProxy.id === proxy.id) node.classList.add('selected');
   node.querySelector('[data-name]').textContent = proxy.name;
-  node.querySelector('[data-endpoint]').textContent =
-    `${proxy.rawScheme} · ${proxy.host}:${proxy.port}`;
   node
     .querySelector('.proxy-btn')
-    .addEventListener('click', () => selectProxy(sub.id, proxy.id));
+    .addEventListener('click', () => selectProxy(proxy.id));
   return node;
 }
 
@@ -175,26 +154,22 @@ function renderSubscription(sub, activeProxy) {
     errEl.hidden = false;
   }
 
-  node
-    .querySelector('[data-act="refresh"]')
-    .addEventListener('click', () => refreshSubscription(sub.id));
-  node
-    .querySelector('[data-act="remove"]')
-    .addEventListener('click', () => removeSubscription(sub.id));
+  node.querySelector('[data-act="refresh"]').addEventListener('click', refreshSubscription);
+  node.querySelector('[data-act="remove"]').addEventListener('click', removeSubscription);
 
   const list = node.querySelector('[data-list]');
   for (const proxy of visible) {
-    list.appendChild(renderProxy(sub, proxy, activeProxy));
+    list.appendChild(renderProxy(proxy, activeProxy));
   }
   return node;
 }
 
 async function render() {
-  const { subscriptions, activeProxy } = await getState();
+  const { subscription, activeProxy } = await getState();
 
   // Active bar + status pill.
   if (activeProxy) {
-    els.activeName.textContent = `${activeProxy.name} · ${activeProxy.host}:${activeProxy.port}`;
+    els.activeName.textContent = activeProxy.name;
     els.statusPill.textContent = 'Proxied';
     els.statusPill.className = 'pill pill-active';
   } else {
@@ -203,20 +178,17 @@ async function render() {
     els.statusPill.className = 'pill pill-direct';
   }
 
-  const totalProxies = subscriptions.reduce((n, s) => n + s.proxies.length, 0);
-  els.filterRow.hidden = totalProxies === 0;
+  els.filterRow.hidden = !(subscription && subscription.proxies.length > 0);
 
   els.subs.replaceChildren();
-  if (subscriptions.length === 0) {
+  if (!subscription) {
     const empty = document.createElement('div');
     empty.className = 'empty';
     empty.textContent = 'Add a PIA subscription URL to get started.';
     els.subs.appendChild(empty);
     return;
   }
-  for (const sub of subscriptions) {
-    els.subs.appendChild(renderSubscription(sub, activeProxy));
-  }
+  els.subs.appendChild(renderSubscription(subscription, activeProxy));
 }
 
 els.addForm.addEventListener('submit', (e) => {

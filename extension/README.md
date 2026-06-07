@@ -28,8 +28,9 @@ popup.js ──(applyProxy)──▶ background.js ──▶ chrome.proxy.settin
 
 - **`lib/parse.js`** — pure, dependency-free parser for subscription lines
   (`<scheme>://<name>:<password>@<host>:<port>#<name>`). Unit-tested.
-- **`popup.{html,css,js}`** — add/refresh/remove subscriptions, filter and pick
-  a proxy, or go direct.
+- **`popup.{html,css,js}`** — set/refresh/remove the (single) subscription,
+  filter and pick a proxy, or go direct. Adding a new URL replaces the existing
+  subscription.
 - **`background.js`** — sets `chrome.proxy` and supplies proxy credentials on
   `onAuthRequired`. The active proxy is persisted so the listener keeps working
   after the service worker is recycled.
@@ -64,6 +65,6 @@ node extension/e2e/e2e.mjs
 | Permission | Why |
 | --- | --- |
 | `proxy` | Set the browser-wide proxy. |
-| `storage` | Persist subscriptions + the active proxy. |
+| `storage` | Persist the subscription + the active proxy. |
 | `webRequest`, `webRequestAuthProvider` | Answer the proxy `407` with credentials. |
 | `host_permissions: <all_urls>` | Fetch the subscription and authenticate proxy requests on any site. |
