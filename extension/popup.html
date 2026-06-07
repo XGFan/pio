@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="popup.css" />
+    <title>PIA Proxy Switcher</title>
+  </head>
+  <body>
+    <header class="topbar">
+      <h1>PIA Proxy</h1>
+      <span id="status-pill" class="pill pill-direct">Direct</span>
+    </header>
+
+    <section class="active-bar">
+      <div class="active-info">
+        <span class="active-label">Current</span>
+        <span id="active-name" class="active-name">No proxy (direct)</span>
+      </div>
+      <button id="btn-direct" class="btn btn-ghost" type="button">Go direct</button>
+    </section>
+
+    <section class="add-sub">
+      <form id="add-form" autocomplete="off">
+        <input
+          id="sub-url"
+          class="input"
+          type="url"
+          placeholder="https://panel.example.com/subscription?password=…"
+          required
+        />
+        <button class="btn btn-primary" type="submit">Add</button>
+      </form>
+      <p id="add-error" class="error" hidden></p>
+    </section>
+
+    <section class="filter-row" id="filter-row" hidden>
+      <input id="filter" class="input" type="search" placeholder="Filter proxies…" />
+    </section>
+
+    <main id="subs" class="subs"></main>
+
+    <template id="sub-template">
+      <div class="sub">
+        <div class="sub-head">
+          <div class="sub-meta">
+            <span class="sub-host" data-host></span>
+            <span class="sub-count" data-count></span>
+          </div>
+          <div class="sub-actions">
+            <button class="btn btn-icon" data-act="refresh" title="Refresh">↻</button>
+            <button class="btn btn-icon" data-act="remove" title="Remove">✕</button>
+          </div>
+        </div>
+        <p class="sub-error error" data-error hidden></p>
+        <ul class="proxy-list" data-list></ul>
+      </div>
+    </template>
+
+    <template id="proxy-template">
+      <li class="proxy" data-proxy>
+        <button class="proxy-btn" type="button">
+          <span class="proxy-name" data-name></span>
+          <span class="proxy-endpoint" data-endpoint></span>
+          <span class="check" data-check>✓</span>
+        </button>
+      </li>
+    </template>
+
+    <script type="module" src="popup.js"></script>
+  </body>
+</html>
