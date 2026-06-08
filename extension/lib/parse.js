@@ -1,6 +1,6 @@
-// Pure subscription-line parsing for the PIA proxy extension.
+// Pure subscription-line parsing for the PIO proxy extension.
 //
-// The PIA daemon serves `GET /subscription?...` as text/plain, one proxy per
+// The PIO daemon serves `GET /subscription?...` as text/plain, one proxy per
 // line, in the form:
 //
 //   <scheme>://<display-name>:<universal-password>@<host>:<port>#<display-name>
@@ -28,7 +28,7 @@ function safeDecode(s) {
 }
 
 // chromeScheme maps a subscription URI scheme to a chrome.proxy `singleProxy`
-// scheme. SOCKS variants collapse to socks5 (PIA's unified port speaks SOCKS5).
+// scheme. SOCKS variants collapse to socks5 (PIO's unified port speaks SOCKS5).
 export function chromeScheme(rawScheme) {
   switch (rawScheme.toLowerCase()) {
     case 'socks':

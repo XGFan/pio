@@ -1,4 +1,4 @@
-// Daemon.swift — Spawn the bundled `piad run` binary as a
+// Daemon.swift — Spawn the bundled `piod run` binary as a
 // child process, read the api.port file once it appears, and forward
 // shutdown signals on quit.
 
@@ -11,7 +11,7 @@ final class DaemonSupervisor {
     init() {
         let fm = FileManager.default
         let support = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
-        self.dataDir = support.appendingPathComponent("pia", isDirectory: true)
+        self.dataDir = support.appendingPathComponent("pio", isDirectory: true)
         try? fm.createDirectory(at: self.dataDir, withIntermediateDirectories: true)
     }
 
@@ -20,11 +20,11 @@ final class DaemonSupervisor {
     func start() throws {
         // Look for daemon binary in the app bundle's Contents/MacOS first,
         // then PATH for dev runs (`swift run` puts it nowhere obvious so
-        // dev users `cp piad ./build/`).
+        // dev users `cp piod ./build/`).
         let exe = locateDaemonBinary()
         guard let exe else {
-            throw NSError(domain: "PIA", code: 1, userInfo: [
-                NSLocalizedDescriptionKey: "Could not locate piad binary. Run scripts/build-app.sh first."
+            throw NSError(domain: "PIO", code: 1, userInfo: [
+                NSLocalizedDescriptionKey: "Could not locate piod binary. Run scripts/build-app.sh first."
             ])
         }
         // Remove any stale api.port from a previous run so waitForAPIPort
@@ -56,7 +56,7 @@ final class DaemonSupervisor {
             Thread.sleep(forTimeInterval: 0.1)
         }
         Self.log("waitForAPIPort timeout after \(Int(timeout))s")
-        throw NSError(domain: "PIA", code: 2, userInfo: [
+        throw NSError(domain: "PIO", code: 2, userInfo: [
             NSLocalizedDescriptionKey: "Daemon did not write api.port within \(Int(timeout))s"
         ])
     }
@@ -64,7 +64,7 @@ final class DaemonSupervisor {
     static func log(_ s: String) {
         let line = "[\(Date())] \(s)\n"
         if let data = line.data(using: .utf8) {
-            let url = URL(fileURLWithPath: "/tmp/pia.log")
+            let url = URL(fileURLWithPath: "/tmp/pio.log")
             if let fh = try? FileHandle(forWritingTo: url) {
                 fh.seekToEndOfFile(); fh.write(data); try? fh.close()
             } else {
@@ -94,19 +94,19 @@ final class DaemonSupervisor {
     private func locateDaemonBinary() -> URL? {
         // 1. Same directory as the running app's executable.
         if let main = Bundle.main.executableURL {
-            let sibling = main.deletingLastPathComponent().appendingPathComponent("piad")
+            let sibling = main.deletingLastPathComponent().appendingPathComponent("piod")
             if FileManager.default.isExecutableFile(atPath: sibling.path) {
                 return sibling
             }
         }
-        // 2. PIA_PROXYD_BINARY env override for development.
-        if let env = ProcessInfo.processInfo.environment["PIA_PROXYD_BINARY"],
+        // 2. PIO_PROXYD_BINARY env override for development.
+        if let env = ProcessInfo.processInfo.environment["PIO_PROXYD_BINARY"],
            FileManager.default.isExecutableFile(atPath: env) {
             return URL(fileURLWithPath: env)
         }
-        // 3. ./piad next to the cwd.
+        // 3. ./piod next to the cwd.
         let cwd = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
-            .appendingPathComponent("piad")
+            .appendingPathComponent("piod")
         if FileManager.default.isExecutableFile(atPath: cwd.path) {
             return cwd
         }

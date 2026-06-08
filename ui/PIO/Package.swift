@@ -2,12 +2,12 @@
 import PackageDescription
 
 let package = Package(
-    name: "PIA",
+    name: "PIO",
     platforms: [.macOS(.v13)],
     targets: [
         .executableTarget(
-            name: "PIA",
-            path: "Sources/PIA"
+            name: "PIO",
+            path: "Sources/PIO"
         )
     ]
 )

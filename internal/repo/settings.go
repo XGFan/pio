@@ -4,8 +4,8 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/guofan/pia/internal/crypto"
-	"github.com/guofan/pia/internal/model"
+	"github.com/guofan/pio/internal/crypto"
+	"github.com/guofan/pio/internal/model"
 )
 
 // universalProxyPasswordAAD is the AAD for the settings.universal_proxy_password_enc

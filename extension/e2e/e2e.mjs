@@ -1,7 +1,7 @@
-// End-to-end test for the PIA Proxy Switcher extension.
+// End-to-end test for the PIO Proxy Switcher extension.
 //
 // It proves the full chain, not just the UI:
-//   1. A local server serves a PIA-style subscription (and asserts the
+//   1. A local server serves a PIO-style subscription (and asserts the
 //      extension requested it with ?type=http).
 //   2. A local forward proxy REQUIRES Basic auth (407 without it).
 //   3. The extension is loaded unpacked in Chromium; the popup adds the
@@ -59,7 +59,7 @@ async function main() {
   const proxyServer = http.createServer((req, res) => {
     if (req.headers['proxy-authorization'] !== expectedAuth) {
       res.writeHead(407, {
-        'Proxy-Authenticate': 'Basic realm="pia"',
+        'Proxy-Authenticate': 'Basic realm="pio"',
         'Content-Type': 'text/plain',
         Connection: 'close',
       });
@@ -73,7 +73,7 @@ async function main() {
   const subPort = await listen(subServer);
   const proxyPort = await listen(proxyServer);
 
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pia-ext-e2e-'));
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pio-ext-e2e-'));
   const context = await chromium.launchPersistentContext(userDataDir, {
     headless: false,
     args: [
@@ -138,7 +138,7 @@ async function main() {
 
     // (5) Real traffic through the proxy succeeds ONLY via onAuthRequired creds.
     const target = await context.newPage();
-    await target.goto('http://pia-e2e.test/hello', { timeout: 15000 });
+    await target.goto('http://pio-e2e.test/hello', { timeout: 15000 });
     const body = await target.content();
     assert(body.includes(SENTINEL), 'page loaded through authenticated proxy (onAuthRequired worked)');
     assert(body.includes('/hello'), 'proxy received the real request path');

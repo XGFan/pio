@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guofan/pia/internal/model"
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/tunnel"
+	"github.com/guofan/pio/internal/model"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/tunnel"
 )
 
 // startSOCKS5Stub spins up an in-process server that accepts the canonical

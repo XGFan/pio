@@ -8,9 +8,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guofan/pia/internal/api"
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/store"
+	"github.com/guofan/pio/internal/api"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/store"
 )
 
 // TestListUpstreams_HidesDirect proves the built-in direct upstream is an

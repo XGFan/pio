@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pio/internal/repo"
 )
 
 // SwapUserMapping is the v4.1 §4.1 hot-switch primitive. Workflow:

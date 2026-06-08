@@ -12,14 +12,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guofan/pia/internal/crypto"
-	"github.com/guofan/pia/internal/listener"
-	"github.com/guofan/pia/internal/registry"
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/routing"
-	"github.com/guofan/pia/internal/store"
-	"github.com/guofan/pia/internal/tunnel"
-	"github.com/guofan/pia/test/mockwebshare"
+	"github.com/guofan/pio/internal/crypto"
+	"github.com/guofan/pio/internal/listener"
+	"github.com/guofan/pio/internal/registry"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/routing"
+	"github.com/guofan/pio/internal/store"
+	"github.com/guofan/pio/internal/tunnel"
+	"github.com/guofan/pio/test/mockwebshare"
 )
 
 // hotSwitchScenario adds two upstreams U1 and U2, maps alice → U1

@@ -6,7 +6,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/guofan/pia/internal/model"
+	"github.com/guofan/pio/internal/model"
 )
 
 // InsertLocalUser stores a new (username, plaintext-password) pair with no

@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guofan/pia/internal/api"
-	"github.com/guofan/pia/internal/auth"
-	"github.com/guofan/pia/internal/crypto"
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/routing"
-	"github.com/guofan/pia/internal/store"
+	"github.com/guofan/pio/internal/api"
+	"github.com/guofan/pio/internal/auth"
+	"github.com/guofan/pio/internal/crypto"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/routing"
+	"github.com/guofan/pio/internal/store"
 )
 
 func subKey() []byte {

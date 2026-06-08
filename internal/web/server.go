@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	cookieName    = "pia_session"
+	cookieName    = "pio_session"
 	sessionTTL    = 24 * time.Hour
 	loginMinDelay = 200 * time.Millisecond
 )

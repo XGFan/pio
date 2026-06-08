@@ -58,7 +58,7 @@ test('rejects blank, comment, and malformed lines', () => {
 
 test('parseSubscription skips junk, dedupes, and assigns stable ids', () => {
   const body = [
-    '# PIA subscription',
+    '# PIO subscription',
     'http://US-A-01:pw@p.example:8080#US-A-01',
     '',
     'http://US-B-02:pw@p.example:8080#US-B-02',

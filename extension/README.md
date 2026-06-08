@@ -1,6 +1,6 @@
-# PIA Proxy Switcher (Chrome extension)
+# PIO Proxy Switcher (Chrome extension)
 
-A Manifest V3 Chrome extension that consumes a [PIA](../README.md) subscription
+A Manifest V3 Chrome extension that consumes a [PIO](../README.md) subscription
 URL, lists the available proxies, and applies a chosen one **browser-wide** —
 authenticating the proxy automatically so every tab routes through it.
 
@@ -10,7 +10,7 @@ Chrome cannot embed credentials in a proxy configuration, and it cannot
 authenticate **SOCKS** proxies at all. So this extension fetches the
 subscription with `?type=http` (added to the daemon in
 [`internal/api/subscription.go`](../internal/api/subscription.go)) and answers
-the proxy's `407` challenge via `chrome.webRequest.onAuthRequired`. PIA's
+the proxy's `407` challenge via `chrome.webRequest.onAuthRequired`. PIO's
 unified proxy port speaks both HTTP and SOCKS, so `type=http` reaches the exact
 same routing set — it only changes the URI scheme.
 

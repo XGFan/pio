@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/store"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/store"
 )
 
 func TestUpdateUpstreamLatency_RoundTrip(t *testing.T) {

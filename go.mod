@@ -1,4 +1,4 @@
-module github.com/guofan/pia
+module github.com/guofan/pio
 
 go 1.26.3
 

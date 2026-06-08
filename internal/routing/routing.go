@@ -27,8 +27,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/guofan/pia/internal/model"
-	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pio/internal/model"
+	"github.com/guofan/pio/internal/repo"
 )
 
 // CancelGroup is the cancellation primitive shared by all connections

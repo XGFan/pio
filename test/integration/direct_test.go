@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/guofan/pia/internal/repo"
+	"github.com/guofan/pio/internal/repo"
 )
 
 // TestDirectUpstream_EgressBypassesProxy proves the built-in direct upstream

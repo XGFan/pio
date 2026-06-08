@@ -2,7 +2,7 @@
 // credentials for HTTP proxy authentication.
 //
 // Chrome cannot embed credentials in a proxy config, and it cannot authenticate
-// SOCKS proxies at all — so the extension consumes PIA's `type=http` list and
+// SOCKS proxies at all — so the extension consumes PIO's `type=http` list and
 // answers the proxy's 407 challenge here via webRequest.onAuthRequired. The
 // active proxy (including its username/password) lives in chrome.storage.local
 // so this listener still works after the service worker is torn down and
@@ -11,7 +11,7 @@
 const STORAGE_KEY = 'activeProxy';
 
 // Request IDs for which we have already offered proxy credentials in the
-// current auth attempt. PIA's proxy guards the universal password with a
+// current auth attempt. PIO's proxy guards the universal password with a
 // per-IP deny-list (10 failures / 60s → 5-min ban), so re-supplying rejected
 // credentials on every retry would get the client banned. We offer once per
 // request, then decline.
@@ -90,7 +90,7 @@ chrome.webRequest.onErrorOccurred.addListener(forgetRequest, { urls: ['<all_urls
 // Surface proxy-level failures (unreachable host, refused auth) to the console
 // for debugging; the popup separately reflects the configured state.
 chrome.proxy.onProxyError.addListener((details) => {
-  console.warn('[PIA] proxy error:', details.error, details.details);
+  console.warn('[PIO] proxy error:', details.error, details.details);
 });
 
 // Popup → worker command channel. Returning true keeps the message port open

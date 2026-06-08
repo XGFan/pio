@@ -1,4 +1,4 @@
-// Command piad is the daemon for the PIA Gateway.
+// Command piod is the daemon for the PIO Gateway.
 // Phase 1 exposes only setup-side subcommands: version, add-key, sync.
 // Listeners and the REST API arrive in later phases.
 package main
@@ -9,7 +9,7 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/guofan/pia/internal/cli"
+	"github.com/guofan/pio/internal/cli"
 )
 
 func main() {

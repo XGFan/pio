@@ -1,4 +1,4 @@
-# PIA — Proxies In One
+# PIO — Proxies In One
 
 A self-hosted forward-proxy manager. It keeps a pool of upstream proxies —
 synced from [Webshare](https://www.webshare.io/) API keys and/or added
@@ -6,7 +6,7 @@ manually — and exposes them locally through a single port that speaks **both
 HTTP and SOCKS5**. Clients authenticate with credentials the daemon owns; the
 daemon rewrites auth and tunnels each connection to the chosen upstream.
 
-It ships as a Go daemon (`piad`) with two admin surfaces: a macOS
+It ships as a Go daemon (`piod`) with two admin surfaces: a macOS
 menu-bar app and an optional cookie-protected LAN web panel.
 
 ## Features
@@ -68,14 +68,14 @@ menu-bar app and an optional cookie-protected LAN web panel.
   public: GET /subscription (query-param auth only)
 ```
 
-- `cmd/piad` — the daemon entry point.
+- `cmd/piod` — the daemon entry point.
 - `internal/listener` — the unified HTTP/SOCKS5 listener and per-protocol handlers.
 - `internal/tunnel` — credential resolution (`Acquire`) and upstream dialing.
 - `internal/routing` — the immutable in-memory routing snapshot (COW/RCU swap).
 - `internal/repo` / `internal/store` — SQLite access and embedded migrations.
 - `internal/api` — the JSON REST surface (loopback, used by the macOS app).
 - `internal/web` — the LAN web admin panel (cookie auth) + public `/subscription`.
-- `ui/PIA` — the macOS SwiftUI menu-bar app.
+- `ui/PIO` — the macOS SwiftUI menu-bar app.
 - `extension/` — the Chrome (MV3) browser proxy-switcher extension.
 
 ## Running
@@ -83,36 +83,36 @@ menu-bar app and an optional cookie-protected LAN web panel.
 Build and run the daemon:
 
 ```sh
-go build -o piad ./cmd/piad
+go build -o piod ./cmd/piod
 
 # Loopback-only (macOS app talks to the unauthenticated loopback API):
-./piad run --data-dir ./data
+./piod run --data-dir ./data
 
 # Also expose the LAN web admin panel:
-PIA_WEB_PASSWORD=secret ./piad run \
+PIO_WEB_PASSWORD=secret ./piod run \
   --data-dir ./data --web-bind 0.0.0.0:9090
 ```
 
 ### CLI
 
 ```
-piad version
-piad add-key --label=<s> --key=<sk_...> [--data-dir=<path>]
-piad sync    --key-id=<id>              [--data-dir=<path>]
-piad run     [--data-dir=<path>] [--web-bind=<addr>] [--web-password=<s>]
+piod version
+piod add-key --label=<s> --key=<sk_...> [--data-dir=<path>]
+piod sync    --key-id=<id>              [--data-dir=<path>]
+piod run     [--data-dir=<path>] [--web-bind=<addr>] [--web-password=<s>]
 ```
 
 - `--web-bind` — serve the web panel on this address (disabled when empty).
 - `--web-password` — required when `--web-bind` is set; prefer the
-  `$PIA_WEB_PASSWORD` env var to keep it out of the process list.
+  `$PIO_WEB_PASSWORD` env var to keep it out of the process list.
 
 ### Environment overrides (for declarative deploys)
 
 | Variable | Effect |
 | --- | --- |
-| `PIA_WEB_PASSWORD` | Web admin panel password (alternative to `--web-password`). |
-| `PIA_PROXY_BIND` | Force the proxy listener bind address (e.g. `0.0.0.0`); persisted back to the DB on boot. |
-| `PIA_PROXY_AUTOSTART` | `true`/`1` starts the proxy listener on boot. |
+| `PIO_WEB_PASSWORD` | Web admin panel password (alternative to `--web-password`). |
+| `PIO_PROXY_BIND` | Force the proxy listener bind address (e.g. `0.0.0.0`); persisted back to the DB on boot. |
+| `PIO_PROXY_AUTOSTART` | `true`/`1` starts the proxy listener on boot. |
 
 ### Data directory & secrets
 
@@ -209,7 +209,7 @@ push to `master`.
 ```sh
 go build ./...
 go test ./...
-( cd ui/PIA && swift build )   # macOS app
+( cd ui/PIO && swift build )   # macOS app
 ```
 
 Migrations are plain `.sql` files under `internal/store/migrations/`, applied

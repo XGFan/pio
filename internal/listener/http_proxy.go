@@ -21,10 +21,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/guofan/pia/internal/auth"
-	"github.com/guofan/pia/internal/model"
-	"github.com/guofan/pia/internal/registry"
-	"github.com/guofan/pia/internal/tunnel"
+	"github.com/guofan/pio/internal/auth"
+	"github.com/guofan/pio/internal/model"
+	"github.com/guofan/pio/internal/registry"
+	"github.com/guofan/pio/internal/tunnel"
 )
 
 // HTTPProxy is the local-side HTTP forward proxy.
@@ -287,7 +287,7 @@ func write407(conn net.Conn, msg string) {
 	body := []byte(msg + "\n")
 	_, _ = fmt.Fprintf(conn,
 		"HTTP/1.1 407 Proxy Authentication Required\r\n"+
-			"Proxy-Authenticate: Basic realm=\"pia\"\r\n"+
+			"Proxy-Authenticate: Basic realm=\"pio\"\r\n"+
 			"Content-Type: text/plain; charset=utf-8\r\n"+
 			"Content-Length: %d\r\n"+
 			"Connection: close\r\n\r\n", len(body))

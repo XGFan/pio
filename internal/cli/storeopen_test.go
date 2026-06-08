@@ -4,7 +4,7 @@ import (
 	"context"
 	"database/sql"
 
-	"github.com/guofan/pia/internal/store"
+	"github.com/guofan/pio/internal/store"
 )
 
 // storeOpen is a tiny wrapper exposed only to tests in this package; the

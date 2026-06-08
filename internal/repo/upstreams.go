@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/guofan/pia/internal/crypto"
-	"github.com/guofan/pia/internal/model"
+	"github.com/guofan/pio/internal/crypto"
+	"github.com/guofan/pio/internal/model"
 )
 
 // upstreamPasswordAAD is the AAD for the upstream_proxies.encrypted_password

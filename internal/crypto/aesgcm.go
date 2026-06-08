@@ -12,7 +12,7 @@ import (
 // one column cannot be transplanted into another and decrypted there.
 //
 // The value is intentionally kept as the historical "webshare-proxy/v1/"
-// (not renamed to PIA) so that data encrypted before the project rename
+// (not renamed to PIO) so that data encrypted before the project rename
 // stays decryptable in place — no re-encryption/migration of existing
 // data.db files is required. It is an opaque crypto domain separator with
 // no user-facing surface.

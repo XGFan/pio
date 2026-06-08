@@ -1,5 +1,5 @@
-// Package cli implements the piad CLI subcommands. The entry
-// point Run is invoked from cmd/piad/main.go and from
+// Package cli implements the piod CLI subcommands. The entry
+// point Run is invoked from cmd/piod/main.go and from
 // integration tests, which inject a fake FetcherFactory to drive the
 // sync code path against an httptest server.
 package cli
@@ -13,10 +13,10 @@ import (
 	"io"
 	"os"
 
-	"github.com/guofan/pia/internal/crypto"
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/store"
-	"github.com/guofan/pia/internal/sync"
+	"github.com/guofan/pio/internal/crypto"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/store"
+	"github.com/guofan/pio/internal/sync"
 )
 
 // Version is the CLI's reported version string.
@@ -72,20 +72,20 @@ func Run(ctx context.Context, args []string, deps Deps) int {
 }
 
 func printUsage(w io.Writer) {
-	fmt.Fprintf(w, `piad %s
+	fmt.Fprintf(w, `piod %s
 
 Usage:
-  piad version
-  piad add-key --label=<s> --key=<s> [--data-dir=<path>]
-  piad sync --key-id=<id> [--data-dir=<path>]
-  piad run [--data-dir=<path>] [--web-bind=<addr>] [--web-password=<s>]
+  piod version
+  piod add-key --label=<s> --key=<s> [--data-dir=<path>]
+  piod sync --key-id=<id> [--data-dir=<path>]
+  piod run [--data-dir=<path>] [--web-bind=<addr>] [--web-password=<s>]
 
 Flags:
   --web-bind=<addr>      Serve the LAN web admin panel on this addr (e.g. 0.0.0.0:9090).
                          Disabled when empty (default). Mac menubar app continues to
                          talk to the unauthenticated loopback API regardless.
   --web-password=<s>     Password for the web admin panel; required when --web-bind is set.
-                         Can also be supplied via $PIA_WEB_PASSWORD (recommended,
+                         Can also be supplied via $PIO_WEB_PASSWORD (recommended,
                          keeps the password out of the process list).
 `, Version)
 }

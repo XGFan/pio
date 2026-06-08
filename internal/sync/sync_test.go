@@ -11,10 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/guofan/pia/internal/crypto"
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/store"
-	"github.com/guofan/pia/internal/webshare"
+	"github.com/guofan/pio/internal/crypto"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/store"
+	"github.com/guofan/pio/internal/webshare"
 )
 
 // fakeFetcher returns canned data for ListProxies. Each test constructs one

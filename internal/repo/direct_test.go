@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/store"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/store"
 )
 
 // TestEnsureDirectUpstream_CreatesAndIsIdempotent verifies the built-in direct

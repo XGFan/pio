@@ -24,9 +24,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/guofan/pia/internal/model"
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/routing"
+	"github.com/guofan/pio/internal/model"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/routing"
 )
 
 // Sentinel errors returned by Acquire. HTTP listener maps these to 407/502;
@@ -175,7 +175,7 @@ func (m *Manager) MeasureLatency(ctx context.Context, upstream *model.UpstreamPr
 
 	req := "GET " + latencyPath + " HTTP/1.1\r\n" +
 		"Host: www.gstatic.com\r\n" +
-		"User-Agent: pia-latency\r\n" +
+		"User-Agent: pio-latency\r\n" +
 		"Connection: close\r\n\r\n"
 	if _, err := io.WriteString(conn, req); err != nil {
 		return 0, fmt.Errorf("latency write: %w", err)

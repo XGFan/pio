@@ -7,7 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/guofan/pia/internal/api"
+	"github.com/guofan/pio/internal/api"
 )
 
 func TestTestLatencyHandler_ReturnsResults(t *testing.T) {

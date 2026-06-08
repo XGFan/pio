@@ -9,8 +9,8 @@ import (
 	"errors"
 	"time"
 
-	"github.com/guofan/pia/internal/crypto"
-	"github.com/guofan/pia/internal/model"
+	"github.com/guofan/pio/internal/crypto"
+	"github.com/guofan/pio/internal/model"
 )
 
 // ErrNotFound is returned when a lookup by primary key finds no row.

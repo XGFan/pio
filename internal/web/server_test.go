@@ -213,7 +213,7 @@ func TestAppRoute_RequiresAuth(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("authed /app: expected 200, got %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "PIA") {
+	if !strings.Contains(rec.Body.String(), "PIO") {
 		t.Fatal("authed /app did not serve index.html")
 	}
 }

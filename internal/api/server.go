@@ -19,13 +19,13 @@ import (
 	"time"
 
 	"github.com/go-chi/chi/v5"
-	"github.com/guofan/pia/internal/auth"
-	"github.com/guofan/pia/internal/crypto"
-	"github.com/guofan/pia/internal/model"
-	"github.com/guofan/pia/internal/registry"
-	"github.com/guofan/pia/internal/repo"
-	"github.com/guofan/pia/internal/routing"
-	"github.com/guofan/pia/internal/ws"
+	"github.com/guofan/pio/internal/auth"
+	"github.com/guofan/pio/internal/crypto"
+	"github.com/guofan/pio/internal/model"
+	"github.com/guofan/pio/internal/registry"
+	"github.com/guofan/pio/internal/repo"
+	"github.com/guofan/pio/internal/routing"
+	"github.com/guofan/pio/internal/ws"
 )
 
 // Deps is the bag of dependencies the API server reads at every request.

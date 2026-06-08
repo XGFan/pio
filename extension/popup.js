@@ -184,7 +184,7 @@ async function render() {
   if (!subscription) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'Add a PIA subscription URL to get started.';
+    empty.textContent = 'Add a PIO subscription URL to get started.';
     els.subs.appendChild(empty);
     return;
   }
