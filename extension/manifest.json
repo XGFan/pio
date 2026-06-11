@@ -8,7 +8,8 @@
     "proxy",
     "storage",
     "webRequest",
-    "webRequestAuthProvider"
+    "webRequestAuthProvider",
+    "browsingData"
   ],
   "host_permissions": [
     "<all_urls>"

@@ -9,53 +9,34 @@
   <body>
     <header class="topbar">
       <h1>PIO Proxy</h1>
-      <span id="status-pill" class="pill pill-direct">Direct</span>
+      <span id="status-pill" class="pill pill-direct">Off</span>
     </header>
 
+    <!-- Active state: which proxy is in effect, plus a one-click Disable. -->
     <section class="active-bar">
       <div class="active-info">
         <span class="active-label">Current</span>
-        <span id="active-name" class="active-name">No proxy (direct)</span>
+        <span id="active-name" class="active-name">Disabled</span>
       </div>
-      <button id="btn-direct" class="btn btn-ghost" type="button">Go direct</button>
+      <button id="btn-direct" class="btn btn-ghost" type="button" hidden>Disable</button>
     </section>
 
-    <section class="add-sub">
+    <!-- Single subscription URL: this field adds it, or replaces the existing one. -->
+    <section class="sub-form">
       <form id="add-form" autocomplete="off">
         <input
           id="sub-url"
           class="input"
           type="url"
-          placeholder="https://panel.example.com/subscription?password=…"
+          placeholder="PIO subscription URL"
           required
         />
-        <button class="btn btn-primary" type="submit">Add</button>
+        <button class="btn btn-primary" type="submit">Save</button>
       </form>
       <p id="add-error" class="error" hidden></p>
     </section>
 
-    <section class="filter-row" id="filter-row" hidden>
-      <input id="filter" class="input" type="search" placeholder="Filter proxies…" />
-    </section>
-
     <main id="subs" class="subs"></main>
-
-    <template id="sub-template">
-      <div class="sub">
-        <div class="sub-head">
-          <div class="sub-meta">
-            <span class="sub-host" data-host></span>
-            <span class="sub-count" data-count></span>
-          </div>
-          <div class="sub-actions">
-            <button class="btn btn-icon" data-act="refresh" title="Refresh">↻</button>
-            <button class="btn btn-icon" data-act="remove" title="Remove">✕</button>
-          </div>
-        </div>
-        <p class="sub-error error" data-error hidden></p>
-        <ul class="proxy-list" data-list></ul>
-      </div>
-    </template>
 
     <template id="proxy-template">
       <li class="proxy" data-proxy>

@@ -1,0 +1,2 @@
+# Dev-only: Playwright is installed here on demand to run e2e/e2e.mjs.
+node_modules/

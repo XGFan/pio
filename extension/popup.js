@@ -12,14 +12,9 @@ const els = {
   addForm: document.getElementById('add-form'),
   subUrl: document.getElementById('sub-url'),
   addError: document.getElementById('add-error'),
-  filterRow: document.getElementById('filter-row'),
-  filter: document.getElementById('filter'),
   subs: document.getElementById('subs'),
-  subTpl: document.getElementById('sub-template'),
   proxyTpl: document.getElementById('proxy-template'),
 };
-
-let filterText = '';
 
 async function getState() {
   const { subscription = null, activeProxy = null } =
@@ -114,18 +109,15 @@ async function selectProxy(proxyId) {
   await render();
 }
 
-async function goDirect() {
+// disableProxy turns the proxy off (direct connection). This is the "Disable"
+// control; the worker resets chrome.proxy to direct and clears the badge.
+async function disableProxy() {
   const resp = await chrome.runtime.sendMessage({ type: 'setDirect' });
   if (!resp || !resp.ok) {
-    showAddError(`Could not go direct: ${resp ? resp.error : 'no response'}`);
+    showAddError(`Could not disable proxy: ${resp ? resp.error : 'no response'}`);
     return;
   }
   await render();
-}
-
-function matchesFilter(proxy) {
-  if (!filterText) return true;
-  return proxy.name.toLowerCase().includes(filterText.toLowerCase());
 }
 
 function renderProxy(proxy, activeProxy) {
@@ -138,53 +130,69 @@ function renderProxy(proxy, activeProxy) {
   return node;
 }
 
+// renderSubscription builds the single subscription block: a source row (host,
+// count, refresh, remove) followed by the proxy list. With only one
+// subscription there is no outer list to nest in — this renders straight into
+// the main area.
 function renderSubscription(sub, activeProxy) {
-  const node = els.subTpl.content.firstElementChild.cloneNode(true);
-  node.querySelector('[data-host]').textContent = hostLabel(sub.url);
+  const node = document.createElement('div');
+  node.className = 'sub';
 
-  const visible = sub.proxies.filter(matchesFilter);
-  node.querySelector('[data-count]').textContent =
-    sub.proxies.length === visible.length
-      ? `${sub.proxies.length} proxies`
-      : `${visible.length}/${sub.proxies.length} proxies`;
+  const head = document.createElement('div');
+  head.className = 'sub-head';
+  head.innerHTML = `
+    <div class="sub-meta">
+      <span class="sub-host" data-host></span>
+      <span class="sub-count" data-count></span>
+    </div>
+    <div class="sub-actions">
+      <button class="btn btn-icon" data-act="refresh" title="Refresh">↻</button>
+      <button class="btn btn-icon" data-act="remove" title="Remove">✕</button>
+    </div>`;
+  head.querySelector('[data-host]').textContent = hostLabel(sub.url);
+  head.querySelector('[data-count]').textContent =
+    `${sub.proxies.length} ${sub.proxies.length === 1 ? 'proxy' : 'proxies'}`;
+  head.querySelector('[data-act="refresh"]').addEventListener('click', refreshSubscription);
+  head.querySelector('[data-act="remove"]').addEventListener('click', removeSubscription);
+  node.appendChild(head);
 
-  const errEl = node.querySelector('[data-error]');
   if (sub.error) {
+    const errEl = document.createElement('p');
+    errEl.className = 'sub-error error';
     errEl.textContent = sub.error;
-    errEl.hidden = false;
+    node.appendChild(errEl);
   }
 
-  node.querySelector('[data-act="refresh"]').addEventListener('click', refreshSubscription);
-  node.querySelector('[data-act="remove"]').addEventListener('click', removeSubscription);
-
-  const list = node.querySelector('[data-list]');
-  for (const proxy of visible) {
+  const list = document.createElement('ul');
+  list.className = 'proxy-list';
+  for (const proxy of sub.proxies) {
     list.appendChild(renderProxy(proxy, activeProxy));
   }
+  node.appendChild(list);
   return node;
 }
 
 async function render() {
   const { subscription, activeProxy } = await getState();
 
-  // Active bar + status pill.
+  // Active bar + status pill. The Disable button only shows when a proxy is on.
   if (activeProxy) {
     els.activeName.textContent = activeProxy.name;
-    els.statusPill.textContent = 'Proxied';
+    els.statusPill.textContent = 'On';
     els.statusPill.className = 'pill pill-active';
+    els.btnDirect.hidden = false;
   } else {
-    els.activeName.textContent = 'No proxy (direct)';
-    els.statusPill.textContent = 'Direct';
+    els.activeName.textContent = 'Disabled';
+    els.statusPill.textContent = 'Off';
     els.statusPill.className = 'pill pill-direct';
+    els.btnDirect.hidden = true;
   }
-
-  els.filterRow.hidden = !(subscription && subscription.proxies.length > 0);
 
   els.subs.replaceChildren();
   if (!subscription) {
     const empty = document.createElement('div');
     empty.className = 'empty';
-    empty.textContent = 'Add a PIO subscription URL to get started.';
+    empty.textContent = 'Add a PIO subscription URL above to get started.';
     els.subs.appendChild(empty);
     return;
   }
@@ -195,10 +203,6 @@ els.addForm.addEventListener('submit', (e) => {
   e.preventDefault();
   addSubscription(els.subUrl.value.trim());
 });
-els.btnDirect.addEventListener('click', goDirect);
-els.filter.addEventListener('input', () => {
-  filterText = els.filter.value.trim();
-  render();
-});
+els.btnDirect.addEventListener('click', disableProxy);
 
 render();
