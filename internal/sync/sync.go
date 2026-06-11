@@ -96,13 +96,20 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 	}
 
 	sanitized := sanitizeLabel(label)
-	seqMap := buildSeqMap(existing, sanitized)
+
+	// StableIDs present in this webshare response. Existing rows whose id is
+	// absent here were rotated out and get deleted below; computing the set up
+	// front lets the allocator free their display-name slots for reuse so a
+	// same-country replacement keeps the old name.
+	incoming := make(map[string]struct{}, len(proxies))
+	for _, p := range proxies {
+		incoming[StableID(p.ProxyAddress, p.Port, p.Username)] = struct{}{}
+	}
+	alloc := buildSeqAllocator(existing, incoming, sanitized)
 
 	now := s.now().UTC()
-	seen := make(map[string]struct{}, len(proxies))
 	for _, p := range proxies {
 		id := StableID(p.ProxyAddress, p.Port, p.Username)
-		seen[id] = struct{}{}
 
 		encPwd, err := crypto.Encrypt(s.masterKey, []byte(p.Password), crypto.ColumnAAD(upstreamPasswordAAD))
 		if err != nil {
@@ -143,9 +150,9 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 			continue
 		}
 
-		// New row: allocate next seq for this country, generate DisplayName.
-		seqMap[p.CountryCode]++
-		dn := formatDisplayName(p.CountryCode, sanitized, seqMap[p.CountryCode])
+		// New row: allocate the lowest free seq for this country, generate
+		// DisplayName.
+		dn := formatDisplayName(p.CountryCode, sanitized, alloc.next(p.CountryCode))
 		// Set `source` explicitly rather than relying on the column DEFAULT —
 		// the load path (loadExistingUpstreams) and the stale-row DELETE both
 		// filter on source='webshare', so the value here is part of the
@@ -169,7 +176,7 @@ func (s *Service) SyncKey(ctx context.Context, keyID int64) error {
 	// mis-tags a manual row with a source_api_key_id can never delete the
 	// user's manual entries.
 	for id := range existing {
-		if _, ok := seen[id]; ok {
+		if _, ok := incoming[id]; ok {
 			continue
 		}
 		if _, err := tx.ExecContext(ctx,
@@ -242,23 +249,33 @@ func loadExistingUpstreams(ctx context.Context, tx *sql.Tx, keyID int64) (map[st
 	return out, rows.Err()
 }
 
-// buildSeqMap scans existing auto-form display_names and records, per
-// country code, the highest seq number already in use. New upstream
-// allocations start at that+1 within the same (country, key) bucket.
-// Renamed rows (those that don't match the auto-form regex) are ignored
-// here — they can leave seq "holes" but we never reuse a slot, so the
-// auto-form uniqueness invariant holds.
-func buildSeqMap(existing map[string]existingUpstream, sanitizedLabel string) map[string]int {
-	out := map[string]int{}
-	for _, e := range existing {
-		cc, lab, n, ok := parseDisplayName(e.displayName)
-		if !ok || cc != e.countryCode || lab != sanitizedLabel {
+// buildSeqAllocator seeds a seqAllocator with the canonical seq numbers that
+// will still be occupied after this sync, so newly inserted rows fill the
+// lowest free slot per country instead of always climbing. Only rows that
+// survive the sync (their id reappears in the webshare response) are reserved:
+//   - canonical names in this key's {label}-{CC}-{NN} namespace keep their seq;
+//   - legacy-form survivors are about to be rewritten to canonical with their
+//     existing number (see the update branch in syncTx), so reserve that too —
+//     otherwise a new row could collide with the rewritten name.
+//
+// Rows being deleted are intentionally omitted so their slots free up for
+// reuse — that is what lets a same-country replacement keep the old display
+// name. User-renamed rows fall outside the canonical namespace and can't
+// collide, so they're ignored.
+func buildSeqAllocator(existing map[string]existingUpstream, surviving map[string]struct{}, sanitizedLabel string) *seqAllocator {
+	a := newSeqAllocator()
+	for id, e := range existing {
+		if _, ok := surviving[id]; !ok {
 			continue
 		}
-		if n > out[cc] {
-			out[cc] = n
+		if cc, lab, n, ok := parseDisplayName(e.displayName); ok && cc == e.countryCode && lab == sanitizedLabel {
+			a.reserve(cc, n)
+			continue
+		}
+		if _, _, n, ok := parseLegacyDisplayName(e.displayName); ok {
+			a.reserve(e.countryCode, n)
 		}
 	}
-	return out
+	return a
 }
 

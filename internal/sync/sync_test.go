@@ -328,6 +328,58 @@ func TestDisplayNameSequence(t *testing.T) {
 	}
 }
 
+// TestReplaceReusesDisplayNameSlot pins the behaviour a replace relies on: when
+// a proxy drops out of a sync and another in the same country takes its place,
+// the newcomer reclaims the freed seq slot instead of climbing — so a client
+// routing by the display name (universal-password / subscription #name) is
+// undisturbed.
+func TestReplaceReusesDisplayNameSlot(t *testing.T) {
+	fx := newFixture(t)
+	ctx := context.Background()
+	fx.fetcher.proxies = []webshare.Proxy{
+		mkProxy("1.1.1.1", 1080, "u1", "p", "US"),
+		mkProxy("2.2.2.2", 1080, "u2", "p", "US"),
+	}
+	if err := fx.svc.SyncKey(ctx, fx.keyID); err != nil {
+		t.Fatal(err)
+	}
+
+	byHost := func() map[string]string {
+		out := map[string]string{}
+		for _, r := range dumpUpstreams(t, fx.db, fx.keyID) {
+			out[r.host] = r.displayName
+		}
+		return out
+	}
+	before := byHost()
+	if before["1.1.1.1"] != "USPremium-US-01" || before["2.2.2.2"] != "USPremium-US-02" {
+		t.Fatalf("unexpected initial names: %v", before)
+	}
+
+	// Replace 1.1.1.1 (US-01) with a new US proxy 9.9.9.9: it disappears from
+	// the response and the newcomer appears. 2.2.2.2 stays.
+	fx.fetcher.proxies = []webshare.Proxy{
+		mkProxy("2.2.2.2", 1080, "u2", "p", "US"),
+		mkProxy("9.9.9.9", 1080, "u9", "p", "US"),
+	}
+	if err := fx.svc.SyncKey(ctx, fx.keyID); err != nil {
+		t.Fatal(err)
+	}
+
+	after := byHost()
+	if _, gone := after["1.1.1.1"]; gone {
+		t.Fatalf("replaced proxy should be deleted, still present: %v", after)
+	}
+	// The newcomer reclaims slot 01 (vacated by 1.1.1.1), not a fresh 03.
+	if after["9.9.9.9"] != "USPremium-US-01" {
+		t.Errorf("replacement should reuse freed slot USPremium-US-01, got %q", after["9.9.9.9"])
+	}
+	// The untouched survivor keeps its own slot.
+	if after["2.2.2.2"] != "USPremium-US-02" {
+		t.Errorf("survivor name should be stable USPremium-US-02, got %q", after["2.2.2.2"])
+	}
+}
+
 func TestRenamedDisplayNamePreservedAcrossSync(t *testing.T) {
 	fx := newFixture(t)
 	ctx := context.Background()

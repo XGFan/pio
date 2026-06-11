@@ -78,3 +78,43 @@ func parseLegacyDisplayName(s string) (cc, label string, seq int, ok bool) {
 func formatDisplayName(cc, sanitizedLabel string, seq int) string {
 	return fmt.Sprintf("%s-%s-%02d", sanitizedLabel, cc, seq)
 }
+
+// seqAllocator hands out canonical seq numbers per country code, always
+// picking the lowest one not currently in use. Slots vacated by upstreams that
+// drop out of a sync (rotated away by Webshare, or swapped out by a replace)
+// are reusable, so a same-country replacement reclaims the departing proxy's
+// number instead of climbing to the next free one. That keeps the display name
+// a client routes by — universal-password routing and the subscription #name
+// fragment — stable across a replace.
+type seqAllocator struct {
+	used map[string]map[int]struct{}
+}
+
+func newSeqAllocator() *seqAllocator {
+	return &seqAllocator{used: map[string]map[int]struct{}{}}
+}
+
+func (a *seqAllocator) ccSet(cc string) map[int]struct{} {
+	m := a.used[cc]
+	if m == nil {
+		m = map[int]struct{}{}
+		a.used[cc] = m
+	}
+	return m
+}
+
+// reserve marks seq as occupied for cc so next never hands it out.
+func (a *seqAllocator) reserve(cc string, seq int) {
+	a.ccSet(cc)[seq] = struct{}{}
+}
+
+// next returns the lowest positive seq not yet used for cc and reserves it.
+func (a *seqAllocator) next(cc string) int {
+	m := a.ccSet(cc)
+	for n := 1; ; n++ {
+		if _, ok := m[n]; !ok {
+			m[n] = struct{}{}
+			return n
+		}
+	}
+}
