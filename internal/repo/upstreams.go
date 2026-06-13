@@ -22,7 +22,6 @@ const upstreamPasswordAAD = "upstream_proxies.encrypted_password"
 // SourceWebshare / SourceManual / SourceDefault are the canonical values of
 // upstream_proxies.source. SourceDefault tags the single built-in "default"
 // upstream whose egress is the daemon's own host network (no upstream hop).
-// (It was historically named "direct"; renamed in migration 0011.)
 const (
 	SourceWebshare = "webshare"
 	SourceManual   = "manual"

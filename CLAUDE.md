@@ -107,7 +107,7 @@ import `registry`. Three rebuild entry points: `SwapUserMapping` (one user),
    upstreams) are dropped from the index entirely, never silently routed.
 
 All password compares are constant-time (`crypto/subtle`). The built-in **`default`**
-upstream (historically `direct`, renamed in migration 0011) egresses from the daemon's
+upstream egresses from the daemon's
 own host (no upstream hop), is immutable, reachable by name, and offered as a mapping
 target in the admin UI (`api.listUpstreams` returns it; it has no owning key so it never
 shows under a key's table) — note the wider-egress security caveat in README.

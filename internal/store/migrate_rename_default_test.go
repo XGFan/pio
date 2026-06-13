@@ -50,13 +50,14 @@ func applyMigrationsBelow(t *testing.T, db *sql.DB, stop string) {
 	}
 }
 
-// TestMigration0011_RenamesDirectToDefault drives migration 0011 against a DB
+// TestMigration0011_DropsLegacyDirect drives migration 0011 against a DB
 // reconstructed at the prior (0010) schema that holds the legacy built-in row
 // (id/source/display_name all 'direct') plus a user mapped to it and an
-// unrelated webshare row with its own mapped user. It asserts the built-in is
-// renamed to "default", its mapping follows, the unrelated mapping survives the
-// table rebuild, and the new CHECK rejects the old 'direct' source value.
-func TestMigration0011_RenamesDirectToDefault(t *testing.T) {
+// unrelated webshare row with its own mapped user. It asserts the 'direct' row
+// is dropped outright (the new 'default' is seeded at boot, not by the
+// migration), the direct-mapped user is left unmapped, the unrelated mapping
+// survives the table rebuild, and the new CHECK swaps 'direct'→'default'.
+func TestMigration0011_DropsLegacyDirect(t *testing.T) {
 	ctx := context.Background()
 	dsn := "file:mem-mig-" + randHex(8) + "?mode=memory&cache=shared&" + dsnPragmas
 	db, err := sql.Open("sqlite", dsn)
@@ -100,35 +101,25 @@ func TestMigration0011_RenamesDirectToDefault(t *testing.T) {
 	// Apply the rename migration.
 	applyMigrationFile(t, db, "0011_rename_direct_to_default.sql")
 
-	// No trace of 'direct' remains anywhere in upstream_proxies.
-	var legacy int
-	if err := db.QueryRow(
-		`SELECT count(*) FROM upstream_proxies WHERE id='direct' OR source='direct' OR display_name='direct'`,
-	).Scan(&legacy); err != nil {
-		t.Fatal(err)
-	}
+	// The legacy 'direct' row is gone, and the migration does NOT seed 'default'
+	// (boot's EnsureDefaultUpstream does that).
+	var legacy, defaults int
+	_ = db.QueryRow(`SELECT count(*) FROM upstream_proxies WHERE id='direct' OR source='direct'`).Scan(&legacy)
 	if legacy != 0 {
-		t.Fatalf("legacy 'direct' still present in upstream_proxies: %d row(s)", legacy)
+		t.Fatalf("legacy 'direct' still present: %d row(s)", legacy)
+	}
+	_ = db.QueryRow(`SELECT count(*) FROM upstream_proxies WHERE id='default'`).Scan(&defaults)
+	if defaults != 0 {
+		t.Fatalf("migration must not seed a 'default' row (boot does): found %d", defaults)
 	}
 
-	// The built-in row is now 'default' across id/source/display_name.
-	var src, disp string
-	if err := db.QueryRow(
-		`SELECT source, display_name FROM upstream_proxies WHERE id='default'`,
-	).Scan(&src, &disp); err != nil {
-		t.Fatalf("default row missing after rename: %v", err)
-	}
-	if src != "default" || disp != "default" {
-		t.Fatalf("default row = source %q display %q, want both 'default'", src, disp)
-	}
-
-	// The built-in user's mapping followed the rename...
+	// The direct-mapped user is intentionally left unmapped (no carry-over)...
 	var dm sql.NullString
 	if err := db.QueryRow(`SELECT upstream_proxy_id FROM local_users WHERE username='duser'`).Scan(&dm); err != nil {
 		t.Fatal(err)
 	}
-	if dm.String != "default" {
-		t.Fatalf("duser mapping = %q, want 'default'", dm.String)
+	if dm.Valid {
+		t.Fatalf("duser mapping = %q, want NULL (direct mapping dropped)", dm.String)
 	}
 	// ...and the UNRELATED mapping survived the table rebuild intact (this is
 	// the FK-preservation guarantee the rebuild depends on).
@@ -140,11 +131,16 @@ func TestMigration0011_RenamesDirectToDefault(t *testing.T) {
 		t.Fatalf("wuser mapping = %q, want 'w1' (must survive the rebuild)", wm.String)
 	}
 
-	// The new CHECK constraint rejects the retired 'direct' source value.
+	// The new CHECK rejects the retired 'direct' source value and accepts 'default'.
 	if _, err := db.ExecContext(ctx, `
 		INSERT INTO upstream_proxies (id, source, host, port, encrypted_password, last_seen_at)
 		VALUES ('x', 'direct', '', 0, X'', datetime('now'))`); err == nil {
-		t.Fatal("expected CHECK to reject source='direct' after rename")
+		t.Fatal("expected CHECK to reject source='direct'")
+	}
+	if _, err := db.ExecContext(ctx, `
+		INSERT INTO upstream_proxies (id, source, host, port, encrypted_password, last_seen_at)
+		VALUES ('d1', 'default', '', 0, X'', datetime('now'))`); err != nil {
+		t.Fatalf("CHECK should accept source='default': %v", err)
 	}
 }
 

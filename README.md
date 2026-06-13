@@ -158,12 +158,6 @@ on boot. Routing to it dials the target **straight out of the daemon's own host
 network** — there is no upstream proxy hop, so traffic exits from the machine
 the daemon runs on.
 
-> **Upgrade note (breaking).** This upstream was historically named `direct`;
-> migration 0011 renames it to `default` and repoints any per-user mappings
-> automatically. Subscription-driven clients self-heal (the list now emits the
-> `default` line), but any client **hand-configured with `username=direct`** via
-> the universal password must be updated to `username=default`.
-
 - **How to use it.** Either map a local user to it — it appears in the admin
   UI's user→upstream mapping dropdown alongside synced/manual proxies — or, with
   a universal password set, connect with `username = default` and
