@@ -23,19 +23,43 @@ const (
 	cookieName    = "pio_session"
 	sessionTTL    = 24 * time.Hour
 	loginMinDelay = 200 * time.Millisecond
+
+	// AuthModePassword is the default: the panel issues its own cookie session
+	// after a password challenge (the historical behaviour).
+	AuthModePassword = "password"
+	// AuthModeForwardAuth trusts an identity header injected by an upstream
+	// forward-auth proxy (e.g. tinyauth's Remote-* headers). The panel does no
+	// password challenge of its own; presence of the header IS the proof of
+	// authentication. Safe ONLY when the daemon is reachable exclusively via
+	// the proxy that sets the header (see the LAN warning in cli/run.go).
+	AuthModeForwardAuth = "forward-auth"
+	// DefaultTrustedHeader is the forward-auth identity header used when the
+	// operator does not override it. Matches tinyauth's authResponseHeaders,
+	// which Traefik's forwardAuth replaces on the forwarded request — so a
+	// client cannot spoof it through the proxy. Exported so cli/run.go can name
+	// it in the LAN warning without duplicating the literal.
+	DefaultTrustedHeader = "Remote-Email"
 )
 
 // Options is the dependency bag for New. APIHandler must be the chi.Router
-// returned by api.Server.Handler(); the web server mounts it under cookie
-// auth at /api/v1/*.
+// returned by api.Server.Handler(); the web server mounts it under the
+// configured auth at /api/v1/*.
 type Options struct {
-	Bind       string
-	Password   string
-	APIHandler http.Handler
+	Bind string
+	// AuthMode selects how the panel authenticates: AuthModePassword (default)
+	// or AuthModeForwardAuth. Empty means AuthModePassword.
+	AuthMode string
+	// Password is the admin password; required in AuthModePassword, ignored in
+	// AuthModeForwardAuth.
+	Password string
+	// TrustedHeader is the request header carrying the authenticated identity
+	// in AuthModeForwardAuth. Empty defaults to defaultTrustedHeader.
+	TrustedHeader string
+	APIHandler    http.Handler
 	// SubscriptionHandler, when non-nil, is mounted at GET /subscription
-	// OUTSIDE the cookie-auth middleware — it authenticates via its own
-	// ?password= query parameter only, so proxy clients can fetch it without
-	// a session. May be nil to disable the public route.
+	// OUTSIDE the auth middleware — it authenticates via its own ?password=
+	// query parameter only, so proxy clients can fetch it without a session.
+	// May be nil to disable the public route.
 	SubscriptionHandler http.Handler
 	Logger              *slog.Logger
 }
@@ -48,15 +72,29 @@ type Server struct {
 	srv      *http.Server
 }
 
-// New validates the options and returns a server ready to Bind. Password
-// must be non-empty — the caller is responsible for refusing to start the
-// web listener at all when the operator has not supplied one.
+// New validates the options and returns a server ready to Bind. In
+// AuthModePassword (the default) Password must be non-empty — the caller is
+// responsible for refusing to start the web listener when the operator has not
+// supplied one. In AuthModeForwardAuth the password is ignored and TrustedHeader
+// defaults to defaultTrustedHeader.
 func New(opts Options) (*Server, error) {
 	if opts.Bind == "" {
 		return nil, errors.New("web: Bind is required")
 	}
-	if opts.Password == "" {
-		return nil, errors.New("web: Password is required")
+	if opts.AuthMode == "" {
+		opts.AuthMode = AuthModePassword
+	}
+	switch opts.AuthMode {
+	case AuthModePassword:
+		if opts.Password == "" {
+			return nil, errors.New("web: Password is required")
+		}
+	case AuthModeForwardAuth:
+		if opts.TrustedHeader == "" {
+			opts.TrustedHeader = DefaultTrustedHeader
+		}
+	default:
+		return nil, errors.New("web: invalid AuthMode " + opts.AuthMode + " (want " + AuthModePassword + " or " + AuthModeForwardAuth + ")")
 	}
 	if opts.APIHandler == nil {
 		return nil, errors.New("web: APIHandler is required")
@@ -132,11 +170,11 @@ func (s *Server) handler() http.Handler {
 // --- handlers --------------------------------------------------------------
 
 func (s *Server) rootHandler(w http.ResponseWriter, r *http.Request) {
-	if s.validCookie(r) {
+	if s.authenticated(r) {
 		http.Redirect(w, r, "/app", http.StatusFound)
 		return
 	}
-	http.Redirect(w, r, "/login", http.StatusFound)
+	s.denyHTML(w, r)
 }
 
 // serveStatic returns a handler that serves a single named file out of the
@@ -150,6 +188,13 @@ func serveStatic(name string) http.HandlerFunc {
 }
 
 func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
+	// Password login only exists in password mode. Guard hard so an empty
+	// configured password (forward-auth mode) can never be matched by an empty
+	// posted password.
+	if s.opts.AuthMode != AuthModePassword {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "password login disabled"})
+		return
+	}
 	start := time.Now()
 	defer func() {
 		// Constant-time floor — even on success — so an attacker can't
@@ -199,33 +244,54 @@ func (s *Server) logoutHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionStatusHandler(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": s.validCookie(r)})
+	writeJSON(w, http.StatusOK, map[string]bool{"authenticated": s.authenticated(r)})
 }
 
-// requireAuth wraps HTML routes: redirects to /login when the cookie is
-// missing or stale.
+// requireAuth wraps HTML routes: denies (login redirect in password mode, 401
+// in forward-auth mode) when the request is not authenticated.
 func (s *Server) requireAuth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.validCookie(r) {
-			http.Redirect(w, r, "/login", http.StatusFound)
+		if !s.authenticated(r) {
+			s.denyHTML(w, r)
 			return
 		}
 		next(w, r)
 	}
 }
 
-// requireAuthAPI wraps the /api/v1/* mount: returns 401 JSON when the
-// cookie is missing or stale. The /events WebSocket also lives under
-// /api/v1 and is gated the same way; browsers attach the cookie on the
-// WebSocket handshake automatically.
+// requireAuthAPI wraps the /api/v1/* mount: returns 401 JSON when the request
+// is not authenticated. The /events WebSocket also lives under /api/v1 and is
+// gated the same way; in password mode browsers attach the cookie on the
+// handshake, in forward-auth mode the proxy injects the identity header.
 func (s *Server) requireAuthAPI(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !s.validCookie(r) {
+		if !s.authenticated(r) {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "unauthorized"})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// authenticated reports whether the request is authenticated under the active
+// auth mode. In forward-auth mode the presence of a non-empty trusted identity
+// header is the proof; in password mode it is a valid session cookie.
+func (s *Server) authenticated(r *http.Request) bool {
+	if s.opts.AuthMode == AuthModeForwardAuth {
+		return r.Header.Get(s.opts.TrustedHeader) != ""
+	}
+	return s.validCookie(r)
+}
+
+// denyHTML writes the not-authenticated response for HTML routes: a redirect to
+// the password login page in password mode, or a 401 in forward-auth mode where
+// there is no local login page to send the user to.
+func (s *Server) denyHTML(w http.ResponseWriter, r *http.Request) {
+	if s.opts.AuthMode == AuthModeForwardAuth {
+		http.Error(w, "forward-auth: missing trusted identity header", http.StatusUnauthorized)
+		return
+	}
+	http.Redirect(w, r, "/login", http.StatusFound)
 }
 
 func (s *Server) validCookie(r *http.Request) bool {

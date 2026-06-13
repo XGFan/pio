@@ -6,7 +6,9 @@ PIO ("Proxies In One") is a self-hosted forward-proxy manager: a Go daemon (`pio
 that pools upstream proxies (synced from Webshare API keys and/or added manually)
 and exposes them locally through **one port that speaks both HTTP and SOCKS5**.
 Admin surfaces are a macOS SwiftUI menu-bar app (loopback REST) and an optional
-cookie-protected LAN web panel. README.md is the authoritative feature/spec doc —
+LAN web panel (default: password cookie session; or `forward-auth` mode that
+trusts an upstream proxy's identity header, e.g. behind tinyauth). README.md is
+the authoritative feature/spec doc —
 read it for behavior questions; this file covers commands and the architecture that
 spans multiple files.
 

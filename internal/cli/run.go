@@ -35,15 +35,35 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	dataDir := fs.String("data-dir", "", "override the default data directory")
 	webBind := fs.String("web-bind", "", "if non-empty, also serve the web admin panel on this addr (e.g. 0.0.0.0:9090)")
 	webPassword := fs.String("web-password", "", "password for the web admin panel; alternatively set $PIO_WEB_PASSWORD")
+	webAuthMode := fs.String("web-auth-mode", "", `web panel auth mode: "password" (default) or "forward-auth" (trust an upstream proxy identity header); alternatively set $PIO_WEB_AUTH_MODE`)
+	webAuthHeader := fs.String("web-auth-header", "", "in forward-auth mode, the request header carrying the authenticated identity (default Remote-Email); alternatively set $PIO_WEB_AUTH_HEADER")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
 	if *webBind != "" {
-		if envPwd := os.Getenv("PIO_WEB_PASSWORD"); envPwd != "" {
-			*webPassword = envPwd
+		// Env overrides flags (consistent with the other declarative-deploy knobs).
+		if v := os.Getenv("PIO_WEB_AUTH_MODE"); v != "" {
+			*webAuthMode = v
 		}
-		if *webPassword == "" {
-			fmt.Fprintln(deps.Stderr, "run: --web-bind requires --web-password (or $PIO_WEB_PASSWORD)")
+		if v := os.Getenv("PIO_WEB_AUTH_HEADER"); v != "" {
+			*webAuthHeader = v
+		}
+		if *webAuthMode == "" {
+			*webAuthMode = web.AuthModePassword
+		}
+		switch *webAuthMode {
+		case web.AuthModeForwardAuth:
+			// Password is not used; identity comes from the trusted header.
+		case web.AuthModePassword:
+			if envPwd := os.Getenv("PIO_WEB_PASSWORD"); envPwd != "" {
+				*webPassword = envPwd
+			}
+			if *webPassword == "" {
+				fmt.Fprintln(deps.Stderr, "run: --web-bind requires --web-password (or $PIO_WEB_PASSWORD)")
+				return 2
+			}
+		default:
+			fmt.Fprintf(deps.Stderr, "run: invalid --web-auth-mode %q (want %q or %q)\n", *webAuthMode, web.AuthModePassword, web.AuthModeForwardAuth)
 			return 2
 		}
 	}
@@ -303,7 +323,9 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 	if *webBind != "" {
 		webSrv, err := web.New(web.Options{
 			Bind:                *webBind,
+			AuthMode:            *webAuthMode,
 			Password:            *webPassword,
+			TrustedHeader:       *webAuthHeader,
 			APIHandler:          apiSrv.Handler(),
 			SubscriptionHandler: apiSrv.SubscriptionHandler(),
 		})
@@ -319,9 +341,19 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 			return 1
 		}
 		if !web.IsLoopbackBind(*webBind) {
-			fmt.Fprintf(deps.Stderr,
-				"WARNING: web admin panel bound to %s is reachable from LAN; anyone on the LAN can attempt the password challenge.\n",
-				*webBind)
+			if *webAuthMode == web.AuthModeForwardAuth {
+				hdr := *webAuthHeader
+				if hdr == "" {
+					hdr = web.DefaultTrustedHeader
+				}
+				fmt.Fprintf(deps.Stderr,
+					"WARNING: web admin panel bound to %s in forward-auth mode trusts the %q header; it MUST sit behind a proxy that authenticates requests and strips client-supplied copies of that header, or auth is bypassable.\n",
+					*webBind, hdr)
+			} else {
+				fmt.Fprintf(deps.Stderr,
+					"WARNING: web admin panel bound to %s is reachable from LAN; anyone on the LAN can attempt the password challenge.\n",
+					*webBind)
+			}
 		}
 		fmt.Fprintf(deps.Stdout, "piod web: http://%s (port=%d)\n", *webBind, webPort)
 		wg.Add(1)

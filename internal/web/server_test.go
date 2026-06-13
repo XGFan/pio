@@ -284,6 +284,211 @@ func TestNew_ValidatesOptions(t *testing.T) {
 	}
 }
 
+// --- forward-auth mode ------------------------------------------------------
+
+func newForwardAuthServer(t *testing.T) *Server {
+	t.Helper()
+	srv, err := New(Options{
+		Bind:                "127.0.0.1:0",
+		AuthMode:            AuthModeForwardAuth,
+		APIHandler:          stubAPIHandler(`[]`),
+		SubscriptionHandler: stubAPIHandler(`sub`),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	return srv
+}
+
+func TestForwardAuth_HeaderGrantsAPI(t *testing.T) {
+	srv := newForwardAuthServer(t)
+	h := srv.handler()
+
+	// No header → 401.
+	req := httptest.NewRequest("GET", "/api/v1/keys", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("no header: expected 401, got %d", rec.Code)
+	}
+
+	// With trusted header → 200, reaches inner handler.
+	req = httptest.NewRequest("GET", "/api/v1/keys", nil)
+	req.Header.Set("Remote-Email", "alice@example.com")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("with header: expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "[]" {
+		t.Fatalf("expected inner handler body, got %q", rec.Body.String())
+	}
+}
+
+func TestForwardAuth_EmptyHeaderRejected(t *testing.T) {
+	srv := newForwardAuthServer(t)
+	h := srv.handler()
+
+	// Present but empty header is not proof of identity.
+	req := httptest.NewRequest("GET", "/api/v1/keys", nil)
+	req.Header.Set("Remote-Email", "")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("empty header: expected 401, got %d", rec.Code)
+	}
+}
+
+func TestForwardAuth_SubscriptionStaysPublic(t *testing.T) {
+	srv := newForwardAuthServer(t)
+	h := srv.handler()
+
+	// /subscription must remain reachable without the auth header.
+	req := httptest.NewRequest("GET", "/subscription", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("subscription: expected 200, got %d", rec.Code)
+	}
+	if rec.Body.String() != "sub" {
+		t.Fatalf("subscription: expected handler body, got %q", rec.Body.String())
+	}
+}
+
+func TestForwardAuth_RootRedirectsToApp(t *testing.T) {
+	srv := newForwardAuthServer(t)
+	h := srv.handler()
+
+	req := httptest.NewRequest("GET", "/", nil)
+	req.Header.Set("Remote-Email", "alice@example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/app" {
+		t.Fatalf("expected redirect to /app, got %q", loc)
+	}
+
+	// Without the header the HTML deny is a 401 (no local login page to use).
+	req = httptest.NewRequest("GET", "/", nil)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("unauth root: expected 401, got %d", rec.Code)
+	}
+}
+
+func TestForwardAuth_LoginDisabled(t *testing.T) {
+	srv := newForwardAuthServer(t)
+	h := srv.handler()
+
+	// Posting an empty password must NOT mint a session (guards the
+	// empty-vs-empty constant-time match when no password is configured).
+	body, _ := json.Marshal(map[string]string{"password": ""})
+	req := httptest.NewRequest("POST", "/web/api/login", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	// 404 proves the mode guard fired (before any decode/compare), not an
+	// incidental error path.
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("login must be disabled (404) in forward-auth mode, got %d", rec.Code)
+	}
+	for _, c := range rec.Result().Cookies() {
+		if c.Name == cookieName {
+			t.Fatal("session cookie set in forward-auth mode")
+		}
+	}
+}
+
+// TestPasswordMode_IgnoresTrustedHeader locks the mode branch: in password mode
+// the forward-auth identity header must NOT grant access — only a valid cookie.
+func TestPasswordMode_IgnoresTrustedHeader(t *testing.T) {
+	srv := newTestServer(t, "secret") // default AuthModePassword
+	h := srv.handler()
+
+	req := httptest.NewRequest("GET", "/api/v1/keys", nil)
+	req.Header.Set("Remote-Email", "attacker@example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("password mode must ignore the trusted header: expected 401, got %d", rec.Code)
+	}
+}
+
+func TestForwardAuth_SessionStatusReflectsHeader(t *testing.T) {
+	srv := newForwardAuthServer(t)
+	h := srv.handler()
+
+	req := httptest.NewRequest("GET", "/web/api/session", nil)
+	req.Header.Set("Remote-Email", "alice@example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	var got map[string]bool
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if !got["authenticated"] {
+		t.Fatal("expected authenticated=true with trusted header")
+	}
+}
+
+func TestForwardAuth_CustomHeader(t *testing.T) {
+	srv, err := New(Options{
+		Bind:          "127.0.0.1:0",
+		AuthMode:      AuthModeForwardAuth,
+		TrustedHeader: "Remote-User",
+		APIHandler:    stubAPIHandler(`[]`),
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	h := srv.handler()
+
+	// Default header is now ignored; only the configured one counts.
+	req := httptest.NewRequest("GET", "/api/v1/keys", nil)
+	req.Header.Set("Remote-Email", "alice@example.com")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("wrong header: expected 401, got %d", rec.Code)
+	}
+
+	req = httptest.NewRequest("GET", "/api/v1/keys", nil)
+	req.Header.Set("Remote-User", "alice")
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("configured header: expected 200, got %d", rec.Code)
+	}
+}
+
+func TestNew_ForwardAuthDefaultsHeaderNoPassword(t *testing.T) {
+	srv, err := New(Options{
+		Bind:       "127.0.0.1:0",
+		AuthMode:   AuthModeForwardAuth,
+		APIHandler: stubAPIHandler(""),
+	})
+	if err != nil {
+		t.Fatalf("forward-auth without password should be valid: %v", err)
+	}
+	if srv.opts.TrustedHeader != DefaultTrustedHeader {
+		t.Fatalf("expected default trusted header %q, got %q", DefaultTrustedHeader, srv.opts.TrustedHeader)
+	}
+}
+
+func TestNew_InvalidAuthMode(t *testing.T) {
+	_, err := New(Options{
+		Bind:       "127.0.0.1:0",
+		AuthMode:   "saml",
+		APIHandler: stubAPIHandler(""),
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid auth mode")
+	}
+}
+
 func TestIsLoopbackBind(t *testing.T) {
 	cases := []struct {
 		in   string

@@ -100,17 +100,31 @@ piod version
 piod add-key --label=<s> --key=<sk_...> [--data-dir=<path>]
 piod sync    --key-id=<id>              [--data-dir=<path>]
 piod run     [--data-dir=<path>] [--web-bind=<addr>] [--web-password=<s>]
+             [--web-auth-mode=password|forward-auth] [--web-auth-header=<h>]
 ```
 
 - `--web-bind` — serve the web panel on this address (disabled when empty).
-- `--web-password` — required when `--web-bind` is set; prefer the
-  `$PIO_WEB_PASSWORD` env var to keep it out of the process list.
+- `--web-auth-mode` — how the panel authenticates (default `password`):
+  - `password` — the panel's own cookie-session password challenge.
+  - `forward-auth` — trust an identity header injected by an upstream
+    forward-auth proxy (e.g. tinyauth). No password challenge; the panel is
+    open to anyone who can reach it directly, so **it MUST sit behind a proxy
+    that authenticates requests and strips client-supplied copies of the
+    header**.
+- `--web-password` — required in `password` mode; prefer the
+  `$PIO_WEB_PASSWORD` env var to keep it out of the process list. Ignored in
+  `forward-auth` mode.
+- `--web-auth-header` — in `forward-auth` mode, the request header carrying the
+  authenticated identity (default `Remote-Email`; the panel only checks that it
+  is present and non-empty).
 
 ### Environment overrides (for declarative deploys)
 
 | Variable | Effect |
 | --- | --- |
-| `PIO_WEB_PASSWORD` | Web admin panel password (alternative to `--web-password`). |
+| `PIO_WEB_PASSWORD` | Web admin panel password (alternative to `--web-password`; used in `password` mode). |
+| `PIO_WEB_AUTH_MODE` | `password` (default) or `forward-auth` (alternative to `--web-auth-mode`). |
+| `PIO_WEB_AUTH_HEADER` | Forward-auth identity header (alternative to `--web-auth-header`; default `Remote-Email`). |
 | `PIO_PROXY_BIND` | Force the proxy listener bind address (e.g. `0.0.0.0`); persisted back to the DB on boot. |
 | `PIO_PROXY_AUTOSTART` | `true`/`1` starts the proxy listener on boot. |
 
@@ -203,6 +217,18 @@ a PVC for `/data`, the web panel on `:9090` behind a Traefik ingress, and the
 unified proxy port (`:8080`) exposed via a MetalLB `LoadBalancer` Service.
 CI (`.woodpecker.yaml`) applies the manifest and rolls the new image on each
 push to `master`.
+
+The shipped manifest runs the panel in **`forward-auth` mode** behind the
+cluster's tinyauth (a Traefik `forwardAuth` middleware): users authenticate at
+tinyauth once and PIO trusts the `Remote-Email` it injects, so there is no
+second password prompt. The panel is gated by a single port-only-via-Traefik
+guarantee — the `pio` Service is `ClusterIP` (reachable solely through the
+ingress) and only the proxy port `:8080` is exposed to the LAN. A separate
+`pio-public` Ingress serves **`/subscription` without tinyauth** so machine
+clients (the Chrome extension, proxy auto-config) keep working off the
+`?password=` query auth. To run without tinyauth, drop `PIO_WEB_AUTH_MODE`
+(falling back to the `PIO_WEB_PASSWORD` challenge) and remove
+`default-tinyauth@kubernetescrd` from the `pio` Ingress.
 
 ## Development
 

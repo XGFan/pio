@@ -60,6 +60,15 @@ spec:
             - name: proxy
               containerPort: 8080
           env:
+            # 登陆走集群 tinyauth(Traefik forwardAuth)：信任其回注的 Remote-Email
+            # 头,面板自身不再做密码挑战(免双重登陆)。要切回自带密码登陆,删掉这行
+            # (或设回 "password") 即可,PIO_WEB_PASSWORD 仍是密码模式的兜底。
+            # 注意:本机制只在「面板仅经 Traefik 可达」时安全 —— pio Service 是
+            # ClusterIP(仅 ingress 可达),对外的 9090 没有任何旁路;代理端口 8080
+            # 走独立的 pio-proxy LoadBalancer,与此无关。
+            # 若改用没有 email 的 tinyauth 本地用户兜底,需加 PIO_WEB_AUTH_HEADER=Remote-User。
+            - name: PIO_WEB_AUTH_MODE
+              value: "forward-auth"
             - name: PIO_WEB_PASSWORD
               value: "password"
             # 强制代理监听 0.0.0.0，使 MetalLB Service 能转发到 Pod。
@@ -122,6 +131,40 @@ spec:
       port: 8080
       targetPort: 8080
 ---
+# 公开订阅端点：机器消费(Chrome 扩展/代理自动配置)，靠 ?password= 鉴权，不能挂
+# tinyauth(否则会被弹到 passkey 登陆页而崩)。单独一个 ingress 只暴露 /subscription，
+# 不挂 tinyauth。显式设 router.priority 高于下面 pio(/) 的默认值(按规则长度计,约 40),
+# 确保 /subscription 命中本路由、绕开登陆校验 —— 不依赖 Traefik 的长度排序默认行为。
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pio-public
+  namespace: default
+  annotations:
+    cert-manager.io/cluster-issuer: cf-dns-issuer
+    traefik.ingress.kubernetes.io/router.priority: "100"
+    traefik.ingress.kubernetes.io/router.middlewares: default-redirect@kubernetescrd
+spec:
+  ingressClassName: traefik
+  tls:
+    - hosts:
+        - pio.test4x.com
+      secretName: wildcard-test4x-com-tls
+  rules:
+    - host: pio.test4x.com
+      http:
+        paths:
+          - path: /subscription
+            pathType: Prefix
+            backend:
+              service:
+                name: pio
+                port:
+                  number: 80
+---
+# 管理面板：其余全部路径，挂 tinyauth 登陆校验(forwardAuth)。中间件按顺序执行,
+# redirect 在前(http→https),tinyauth 在后(鉴权)。tinyauth 通过后回注 Remote-Email,
+# PIO 以 forward-auth 模式信任之(见 Deployment env)。
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
@@ -129,7 +172,7 @@ metadata:
   namespace: default
   annotations:
     cert-manager.io/cluster-issuer: cf-dns-issuer
-    traefik.ingress.kubernetes.io/router.middlewares: default-redirect@kubernetescrd
+    traefik.ingress.kubernetes.io/router.middlewares: default-redirect@kubernetescrd,default-tinyauth@kubernetescrd
 spec:
   ingressClassName: traefik
   tls:
