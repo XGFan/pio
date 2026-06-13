@@ -97,10 +97,10 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 		fmt.Fprintf(deps.Stderr, "settings persist: %v\n", err)
 		return 1
 	}
-	// Seed the built-in "direct" upstream before hydration so it is always
+	// Seed the built-in "default" upstream before hydration so it is always
 	// routable and is a valid FK target for local_users.upstream_proxy_id.
-	if err := repo.EnsureDirectUpstream(ctx, db); err != nil {
-		fmt.Fprintf(deps.Stderr, "ensure direct upstream: %v\n", err)
+	if err := repo.EnsureDefaultUpstream(ctx, db); err != nil {
+		fmt.Fprintf(deps.Stderr, "ensure default upstream: %v\n", err)
 		return 1
 	}
 	core := routing.NewCore(db, masterKey)

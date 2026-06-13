@@ -32,16 +32,16 @@ func startEcho(t *testing.T) string {
 	return ln.Addr().String()
 }
 
-// TestDialUpstream_Direct proves the built-in direct upstream dials the target
+// TestDialUpstream_Default proves the built-in default upstream dials the target
 // straight (no proxy hop): the upstream row carries NO host/port, yet the dial
 // reaches the target and bytes round-trip. Dispatch is on Source, not Protocol.
-func TestDialUpstream_Direct(t *testing.T) {
+func TestDialUpstream_Default(t *testing.T) {
 	target := startEcho(t)
 
 	mgr := tunnel.New(nil) // Acquire isn't exercised; direct dial uses just the dialer.
 	up := &model.UpstreamProxy{
-		ID:     repo.DirectUpstreamID,
-		Source: repo.SourceDirect,
+		ID:     repo.DefaultUpstreamID,
+		Source: repo.SourceDefault,
 		// Deliberately no Host/Port/Username — a proxy path would fail here;
 		// the direct path ignores them and dials the target argument instead.
 	}
@@ -50,28 +50,28 @@ func TestDialUpstream_Direct(t *testing.T) {
 	defer cancel()
 	conn, err := mgr.DialUpstream(ctx, up, "", target)
 	if err != nil {
-		t.Fatalf("DialUpstream(direct): %v", err)
+		t.Fatalf("DialUpstream(default): %v", err)
 	}
 	defer conn.Close()
 
-	if _, err := conn.Write([]byte("hello-direct")); err != nil {
+	if _, err := conn.Write([]byte("hello-default")); err != nil {
 		t.Fatalf("write: %v", err)
 	}
 	_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-	buf := make([]byte, len("hello-direct"))
+	buf := make([]byte, len("hello-default"))
 	if _, err := io.ReadFull(conn, buf); err != nil {
 		t.Fatalf("read: %v", err)
 	}
-	if string(buf) != "hello-direct" {
+	if string(buf) != "hello-default" {
 		t.Errorf("echo mismatch: got %q", buf)
 	}
 }
 
-// TestDialUpstream_Direct_DialError surfaces a connect failure as ErrUpstreamDial
+// TestDialUpstream_Default_DialError surfaces a connect failure as ErrUpstreamDial
 // (so listeners map it to 502/SOCKS-failure like any other dial error).
-func TestDialUpstream_Direct_DialError(t *testing.T) {
+func TestDialUpstream_Default_DialError(t *testing.T) {
 	mgr := tunnel.New(nil)
-	up := &model.UpstreamProxy{ID: repo.DirectUpstreamID, Source: repo.SourceDirect}
+	up := &model.UpstreamProxy{ID: repo.DefaultUpstreamID, Source: repo.SourceDefault}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	// 127.0.0.1:1 is the reserved tcpmux port; nothing listens there.

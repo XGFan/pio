@@ -120,10 +120,10 @@ func (m *Manager) Acquire(_ context.Context, username, password string) (*model.
 // target is passed verbatim — never resolved locally. This is what keeps
 // the geo-routing promise across both webshare and manual upstreams.
 func (m *Manager) DialUpstream(ctx context.Context, upstream *model.UpstreamProxy, upstreamPassword, target string) (net.Conn, error) {
-	// The built-in "direct" upstream has no proxy hop: dial the target straight
+	// The built-in "default" upstream has no proxy hop: dial the target straight
 	// out of the daemon's own host network. Dispatched on Source (not Protocol)
-	// because a direct row carries only a filler protocol value.
-	if upstream.Source == repo.SourceDirect {
+	// because a default row carries only a filler protocol value.
+	if upstream.Source == repo.SourceDefault {
 		return m.dialDirect(ctx, target)
 	}
 	switch upstream.Protocol {
@@ -194,7 +194,7 @@ func (m *Manager) MeasureLatency(ctx context.Context, upstream *model.UpstreamPr
 }
 
 // dialDirect connects straight to target using the daemon's own network — no
-// upstream proxy, no CONNECT/SOCKS handshake. This backs the built-in "direct"
+// upstream proxy, no CONNECT/SOCKS handshake. This backs the built-in "default"
 // upstream: traffic egresses from the host the daemon runs on. The returned
 // conn is handed unchanged to Bridge, so both listener paths (HTTP CONNECT and
 // SOCKS5) work uniformly. m.dialer.Timeout bounds the dial when ctx has none.

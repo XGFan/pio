@@ -49,7 +49,7 @@ and on explicit rebuilds — **never on the hot path**.
 ```
 client ─▶ internal/listener (unified HTTP+SOCKS5, 1 port, sniff first byte)
             └─▶ tunnel.Acquire(user,pass) ─▶ routing.Core snapshot (in-memory, RCU)
-                  └─▶ tunnel.DialUpstream ─▶ upstream proxy (or "direct") ─▶ target
+                  └─▶ tunnel.DialUpstream ─▶ upstream proxy (or "default") ─▶ target
 admin: macOS app + web panel ─▶ internal/api (chi router, /api/v1/*) ─▶ routing.Core + repo
 ```
 
@@ -61,7 +61,8 @@ Package map (`internal/`):
   HTTP), replays it via `prefixConn`, dispatches to `socks5.go`/`http_proxy.go`
   per-connection handlers. UDP ASSOCIATE / BIND are rejected (TCP CONNECT only).
 - `tunnel` — `Acquire` resolves creds against the snapshot; `DialUpstream` dispatches
-  on protocol (http/https-CONNECT, socks5, or `direct`); `Bridge` does the duplex copy.
+  the built-in `default` upstream (on Source) to a straight host-network dial, else
+  on protocol (http/https-CONNECT, socks5); `Bridge` does the duplex copy.
 - `routing` — `core.go` holds the immutable `*RoutingState` behind an RWMutex;
   `swap.go` has the hot-switch rebuilds. **This is the concurrency heart — see below.**
 - `repo` / `store` — SQLite access + embedded migrations.
@@ -105,10 +106,11 @@ import `registry`. Three rebuild entry points: `SwapUserMapping` (one user),
    upstream **display name** and route by it. Ambiguous display names (shared by 2+
    upstreams) are dropped from the index entirely, never silently routed.
 
-All password compares are constant-time (`crypto/subtle`). The built-in **`direct`**
-upstream egresses from the daemon's own host (no upstream hop), is hidden from the
-admin UI, immutable, and reachable by name — note the wider-egress security caveat in
-README.
+All password compares are constant-time (`crypto/subtle`). The built-in **`default`**
+upstream (historically `direct`, renamed in migration 0011) egresses from the daemon's
+own host (no upstream hop), is immutable, reachable by name, and offered as a mapping
+target in the admin UI (`api.listUpstreams` returns it; it has no owning key so it never
+shows under a key's table) — note the wider-egress security caveat in README.
 
 ## Conventions & gotchas
 

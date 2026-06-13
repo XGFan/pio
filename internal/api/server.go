@@ -331,14 +331,13 @@ func (s *Server) listUpstreams(w http.ResponseWriter, r *http.Request) {
 	}
 	out := make([]upstreamDTO, 0, len(rows))
 	for _, u := range rows {
-		// The built-in direct upstream is an internal routing pattern, not a
-		// managed proxy: it is reachable by name (universal-password path /
-		// subscription) but is intentionally hidden from the admin UI listing.
-		if u.Source == repo.SourceDirect {
-			continue
-		}
 		out = append(out, toUpstreamDTO(u))
 	}
+	// The built-in "default" upstream is included so the admin UI can offer it
+	// as a user→upstream mapping target. It is immutable (PATCH is refused) and,
+	// having no owning api key (source_api_key_id=NULL) and source!='manual', it
+	// does not appear in the per-key upstream table or the manual-proxy list — it
+	// only shows up where every upstream is listed, i.e. the mapping dropdowns.
 	writeJSON(w, 200, out)
 }
 
@@ -498,10 +497,10 @@ func (s *Server) patchUpstream(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "manual upstream: use PATCH /api/v1/manual-proxies/{id}")
 		return
 	}
-	// The built-in direct upstream's display name is the routing contract
+	// The built-in default upstream's display name is the routing contract
 	// (universal-password + subscription key); keep it immutable.
-	if cur.Source == repo.SourceDirect {
-		writeErr(w, 400, "built-in direct upstream cannot be edited")
+	if cur.Source == repo.SourceDefault {
+		writeErr(w, 400, "built-in default upstream cannot be edited")
 		return
 	}
 	if err := repo.UpdateUpstreamDisplayName(r.Context(), s.deps.DB, id, in.DisplayName); err != nil {
