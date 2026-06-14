@@ -11,6 +11,19 @@ const state = {
   proxy: { running: false, proxy_addr: '' },
   revealedPasswords: {}, // username -> {plaintext, timerId}
   listenerError: '',
+
+  // Universal-password inline-edit control (rendered from state so a re-render
+  // reconstructs it faithfully without clobbering an in-progress edit).
+  universalPassword: '',       // current value (fetched)
+  universalPasswordSet: false, // whether one is set
+  _uniPwEditing: false,        // edit mode active
+  _uniPwReveal: false,         // view-mode: show plaintext instead of dots
+  _uniPwDraft: '',             // working copy while editing
+  _uniPwInput: null,           // live input node (for focus/caret restore)
+
+  // System-settings baseline for dirty tracking. JSON of the 3 editable fields
+  // captured on each refresh; Start is gated until edits are Applied.
+  _settingsBaseline: '',
 };
 
 // --- API helpers ---
@@ -48,25 +61,41 @@ const apiDELETE = (p) => api('DELETE', p);
 
 async function refreshAll() {
   try {
-    const [keys, upstreams, manualProxies, users, settings, proxy] = await Promise.all([
+    const [keys, upstreams, manualProxies, users, settings, proxy, uniPw] = await Promise.all([
       apiGET('/api/v1/keys').catch(() => []),
       apiGET('/api/v1/upstreams').catch(() => []),
       apiGET('/api/v1/manual-proxies').catch(() => []),
       apiGET('/api/v1/users').catch(() => []),
       apiGET('/api/v1/settings').catch(() => null),
       apiGET('/api/v1/proxy/status').catch(() => ({ running: false })),
+      apiGET('/api/v1/settings/universal-password').catch(() => ({ password: '', set: false })),
     ]);
     state.keys = keys || [];
     state.upstreams = upstreams || [];
     state.manualProxies = manualProxies || [];
     state.users = users || [];
-    if (settings) state.settings = settings;
+    if (settings) {
+      state.settings = settings;
+      state._settingsBaseline = settingsFingerprint(settings);
+    }
     state.proxy = proxy || { running: false };
+    state.universalPassword = (uniPw && uniPw.password) || '';
+    state.universalPasswordSet = !!(uniPw && uniPw.set);
     render();
   } catch (e) {
     // If the very first call returned 401 we already redirected.
     console.error('refresh failed', e);
   }
+}
+
+// settingsFingerprint serializes only the three editable System fields, so we
+// can detect when the form is dirty relative to what the daemon persisted.
+function settingsFingerprint(s) {
+  return JSON.stringify({
+    proxy_bind: s.proxy_bind,
+    proxy_port: s.proxy_port,
+    sync_interval_minutes: s.sync_interval_minutes,
+  });
 }
 
 // --- Render ---
@@ -79,6 +108,15 @@ function render() {
   $app.appendChild(webshareSection());
   $app.appendChild(manualProxiesSection());
   $app.appendChild(usersSection());
+
+  // After a render while editing the universal password, restore focus + caret
+  // to its input so an explicit render() (e.g. toggling reveal) is non-destructive.
+  if (state._uniPwEditing && state._uniPwInput) {
+    const inp = state._uniPwInput;
+    inp.focus();
+    const len = inp.value.length;
+    try { inp.setSelectionRange(len, len); } catch (_) {}
+  }
 }
 
 function manualProxiesSection() {
@@ -235,6 +273,24 @@ function systemSection() {
     subscription_host: '',
   };
   const running = state.proxy.running;
+
+  // Running ⇒ System fields are read-only and the header offers only Stop.
+  // Stopped ⇒ fields editable; Apply persists, then Start (gated while dirty).
+  const dirty = settingsFingerprint(s) !== state._settingsBaseline;
+
+  // The Start button is held in a ref so the field handlers can flip its
+  // disabled state live as the user edits, without a full re-render.
+  const startBtn = el('button', {
+    class: 'primary',
+    disabled: dirty ? '' : null,
+    onclick: () => startProxy(),
+  }, 'Start proxy');
+  const refreshStartGate = () => {
+    if (running) return;
+    if (settingsFingerprint(s) !== state._settingsBaseline) startBtn.setAttribute('disabled', '');
+    else startBtn.removeAttribute('disabled');
+  };
+
   const section = el('section', {},
     el('div', { class: 'config-head' },
       el('div', { class: 'config-head-left' },
@@ -244,15 +300,17 @@ function systemSection() {
           running ? 'Running' : 'Stopped',
         ),
       ),
-      el('button', {
-        class: 'primary',
-        onclick: () => running ? stopProxy() : startProxy(),
-      }, running ? 'Stop proxy' : 'Start proxy'),
+      running
+        ? el('button', { class: 'primary', onclick: () => stopProxy() }, 'Stop proxy')
+        : startBtn,
     ),
     card(
-      el('div', { class: 'row' },
+      el('div', { class: 'row aligned' },
         field('Listen addr', selectEl(
-          { onchange: (e) => { s.proxy_bind = e.target.value; } },
+          {
+            disabled: running ? '' : null,
+            onchange: (e) => { s.proxy_bind = e.target.value; refreshStartGate(); },
+          },
           [
             { value: '127.0.0.1', label: '127.0.0.1' },
             { value: '0.0.0.0', label: '0.0.0.0' },
@@ -262,39 +320,78 @@ function systemSection() {
         )),
         field('Mixed Port', inputEl({
           type: 'number', value: s.proxy_port, style: 'width:90px',
-          oninput: (e) => { s.proxy_port = parseInt(e.target.value || '0', 10); },
+          disabled: running ? '' : null,
+          oninput: (e) => { s.proxy_port = parseInt(e.target.value || '0', 10); refreshStartGate(); },
         })),
         field('Sync (min)', inputEl({
           type: 'number', value: s.sync_interval_minutes, style: 'width:80px',
-          oninput: (e) => { s.sync_interval_minutes = parseInt(e.target.value || '0', 10); },
+          disabled: running ? '' : null,
+          oninput: (e) => { s.sync_interval_minutes = parseInt(e.target.value || '0', 10); refreshStartGate(); },
         })),
         el('div', { class: 'grow' }),
-        el('button', { class: 'primary', onclick: () => applySettings(s) }, 'Apply'),
+        el('button', {
+          class: 'primary',
+          disabled: running ? '' : null,
+          onclick: () => applySettings(s),
+        }, 'Apply'),
       ),
-      el('div', { class: 'row' },
-        el('div', { class: 'field' },
-          el('label', {},
-            'Universal password',
-            infoTip('When set, a client can connect using a proxy’s display name as the username and this password to route through that proxy — no dedicated per-proxy user needed.'),
-            el('span', { class: 'tag ' + (s.universal_proxy_password_set ? 'tag-on' : 'tag-off') },
-              s.universal_proxy_password_set ? 'set' : 'not set'),
-          ),
-          inputEl({
-            type: 'password',
-            placeholder: s.universal_proxy_password_set ? '••••••••' : '',
-            oninput: (e) => { s._universalPwd = e.target.value; },
-          }),
-        ),
-        el('div', { class: 'grow' }),
-        el('button', { class: 'primary', onclick: () => setUniversalPassword(s) }, 'Save'),
-        s.universal_proxy_password_set
-          ? el('button', { class: 'subtle', onclick: () => clearUniversalPassword() }, 'Clear')
-          : null,
-      ),
+      universalPasswordRow(),
       state.listenerError ? el('div', { class: 'banner error' }, state.listenerError) : null,
     ),
   );
   return section;
+}
+
+// universalPasswordRow renders the universal-password control entirely from
+// `state`, so any re-render (including the 30s refresh) reconstructs the
+// in-progress edit faithfully. It is intentionally exempt from the running-state
+// field gating: it uses its own listener-free endpoint and is safe while running.
+function universalPasswordRow() {
+  const editing = state._uniPwEditing;
+  const isSet = state.universalPasswordSet;
+
+  // The input value: draft while editing, otherwise the fetched value.
+  const input = inputEl({
+    type: editing ? 'text' : (state._uniPwReveal ? 'text' : 'password'),
+    value: editing ? state._uniPwDraft : state.universalPassword,
+    placeholder: (!isSet && !editing) ? 'not set — click to set' : '',
+    readonly: editing ? null : '',
+    oninput: editing ? (e) => { state._uniPwDraft = e.target.value; } : null,
+    onfocus: !editing ? () => beginEditUniversalPassword() : null,
+    onblur: editing ? () => discardEditUniversalPassword() : null,
+  });
+  // Track the live input node so render() can restore focus + caret while editing.
+  state._uniPwInput = input;
+
+  // The action button: "Apply" while editing; "查看" reveals in view mode (only
+  // when a password is set). Bound via onmousedown+preventDefault so the click
+  // lands before the input's blur discards the draft.
+  let actionBtn = null;
+  if (editing) {
+    actionBtn = el('button', {
+      class: 'primary',
+      onmousedown: (e) => { e.preventDefault(); applyUniversalPassword(); },
+    }, 'Apply');
+  } else if (isSet) {
+    actionBtn = el('button', {
+      class: 'subtle',
+      onmousedown: (e) => { e.preventDefault(); state._uniPwReveal = !state._uniPwReveal; render(); },
+    }, state._uniPwReveal ? 'Hide' : '查看');
+  }
+
+  return el('div', { class: 'row aligned' },
+    el('div', { class: 'field' },
+      el('label', {},
+        'Universal password',
+        infoTip('When set, a client can connect using a proxy’s display name as the username and this password to route through that proxy — no dedicated per-proxy user needed.'),
+        el('span', { class: 'tag ' + (isSet ? 'tag-on' : 'tag-off') },
+          isSet ? 'set' : 'not set'),
+      ),
+      input,
+    ),
+    el('div', { class: 'grow' }),
+    actionBtn,
+  );
 }
 
 function subscriptionSection() {
@@ -685,29 +782,47 @@ async function applySettings(s) {
       subscription_host: s.subscription_host,
     });
   } catch (e) {
-    state.listenerError = e.message;
+    // The UI gates System edits to the stopped state, so this 409 should be
+    // unreachable — handle it gracefully if it ever slips through.
+    if (e.status === 409 && e.data && e.data.error === 'proxy_running') {
+      state.listenerError = 'Stop the proxy before changing settings.';
+    } else {
+      state.listenerError = e.message;
+    }
   }
   await refreshAll();
 }
 
-async function setUniversalPassword(s) {
-  if (!s._universalPwd) {
-    state.listenerError = 'Enter a password to set, or use Clear to remove it.';
-    render();
-    return;
-  }
-  try {
-    await apiPUT('/api/v1/settings/universal-password', { password: s._universalPwd });
-  } catch (e) {
-    state.listenerError = e.message;
-  }
-  await refreshAll();
+// beginEditUniversalPassword switches the masked view input into an editable
+// draft seeded with the current value.
+function beginEditUniversalPassword() {
+  if (state._uniPwEditing) return;
+  state._uniPwEditing = true;
+  state._uniPwReveal = false;
+  state._uniPwDraft = state.universalPassword;
+  render();
 }
 
-async function clearUniversalPassword() {
-  if (!confirm('Clear the universal proxy password? Clients using a display name + this password will stop working.')) return;
+// discardEditUniversalPassword exits edit mode without saving (blur / click-out),
+// dropping the draft and re-masking.
+function discardEditUniversalPassword() {
+  if (!state._uniPwEditing) return;
+  state._uniPwEditing = false;
+  state._uniPwDraft = '';
+  state._uniPwReveal = false;
+  render();
+}
+
+// applyUniversalPassword persists the draft (empty string clears it), then
+// refetches and leaves edit mode. Bound via onmousedown so it beats the blur race.
+async function applyUniversalPassword() {
+  const draft = state._uniPwDraft;
+  state._uniPwEditing = false;
+  state._uniPwReveal = false;
+  state._uniPwDraft = '';
   try {
-    await apiPUT('/api/v1/settings/universal-password', { password: '' });
+    state.listenerError = '';
+    await apiPUT('/api/v1/settings/universal-password', { password: draft });
   } catch (e) {
     state.listenerError = e.message;
   }
@@ -1011,4 +1126,6 @@ document.getElementById('logout-btn').addEventListener('click', async () => {
 });
 
 refreshAll();
-setInterval(refreshAll, 30000);
+// Don't let the background refresh rebuild the DOM mid-edit and clobber the
+// in-progress universal-password draft.
+setInterval(() => { if (!state._uniPwEditing) refreshAll(); }, 30000);

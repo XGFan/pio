@@ -122,10 +122,10 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 			settings.ProxyBind, settings.ProxyPort)
 	}
 
-	// Listener set: state machine for the HTTP+SOCKS5 listeners. The
-	// settings PUT handler swaps ports via Reconfigure (bind-then-close);
-	// explicit Start/Stop endpoints flip running state. Daemon doesn't bind
-	// here — startBound below uses runCtx so the Serve goroutines can be
+	// Listener set: state machine for the HTTP+SOCKS5 listeners. Settings
+	// (bind/port) are editable only while stopped and take effect on the next
+	// Start; explicit Start/Stop endpoints flip running state. Daemon doesn't
+	// bind here — startBound below uses runCtx so the Serve goroutines can be
 	// cancelled by daemon shutdown.
 	lset := &listenerSet{mgr: mgr, reg: reg, denyList: denyList}
 
@@ -151,7 +151,6 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 			}
 			return err
 		},
-		ReconfigureListeners: nil, // wired below once runCtx exists
 		StartProxy:           nil, // wired below
 		StopProxy:            nil, // wired below
 		ProxyStatus:          nil, // wired below
@@ -187,13 +186,6 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 		port, running, proxyAddr)
 
 	apiSrv.Deps().ShutdownFn = cancelAll
-	apiSrv.Deps().ReconfigureListeners = func() error {
-		latest, err := repo.LoadSettings(context.Background(), db)
-		if err != nil {
-			return err
-		}
-		return lset.Reconfigure(runCtx, latest.ProxyBind, latest.ProxyPort)
-	}
 	apiSrv.Deps().StartProxy = func() error {
 		latest, err := repo.LoadSettings(context.Background(), db)
 		if err != nil {

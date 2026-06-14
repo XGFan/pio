@@ -139,14 +139,18 @@ equivalent to full compromise.
 
 ## Settings
 
-Edited in the admin UI (or via `PUT /api/v1/settings`):
+Edited in the admin UI (macOS app or web panel) or via `PUT /api/v1/settings`.
+
+**Settings are only editable while the proxy is stopped.** Applying settings
+while the proxy is running returns `409 proxy_running`. The flow is:
+**Stop → edit → Apply → Start**.
 
 | Setting | Meaning |
 | --- | --- |
 | Listen addr (`proxy_bind`) | Interface the unified proxy binds to. |
 | Mixed Port (`proxy_port`) | The single HTTP+SOCKS5 proxy port (default 8080). |
 | Sync interval (`sync_interval_minutes`) | Webshare resync cadence. |
-| Universal password | Master credential for display-name routing (set via `PUT /api/v1/settings/universal-password`; never returned by GET). |
+| Universal password | Master credential for display-name routing. Viewable and editable in the web panel's System card (masked by default; a reveal button shows the current value). Set via `PUT /api/v1/settings/universal-password`; read back via `GET /api/v1/settings/universal-password` (admin-gated). Empty string clears it. |
 | Subscription enabled / host | Gate + public host for the subscription endpoint. |
 
 Proxy on/off is controlled separately via `POST /api/v1/proxy/start` /

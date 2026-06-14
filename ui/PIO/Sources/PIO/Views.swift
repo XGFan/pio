@@ -110,6 +110,7 @@ struct ProxySourcesView: View {
                     Task { await state.applySettings(state.settings) }
                 }
             }
+            .disabled(state.proxyRunning)
             HStack(spacing: 8) {
                 Text("Universal password:").font(.subheadline)
                 SecureField("New password", text: $universalPasswordInput)

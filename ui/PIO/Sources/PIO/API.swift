@@ -177,6 +177,12 @@ struct KeyInUseError: Codable {
     }
 }
 
+// Generic {error, message} body returned by several 4xx responses.
+struct APIErrorBody: Codable {
+    let error: String
+    let message: String?
+}
+
 // MARK: - Client
 
 enum APIError: Error, LocalizedError {
@@ -185,6 +191,7 @@ enum APIError: Error, LocalizedError {
     case keyInUse([ReferencingUser])
     case upstreamInUse([ReferencingUser])
     case manualNameInUse
+    case proxyRunning
     case decoding(Error)
     case transport(Error)
 
@@ -195,6 +202,7 @@ enum APIError: Error, LocalizedError {
         case .keyInUse(let refs): return "Key in use by \(refs.count) user(s)"
         case .upstreamInUse(let refs): return "Upstream in use by \(refs.count) user(s)"
         case .manualNameInUse: return "Name already used by another manual proxy"
+        case .proxyRunning: return "Stop the proxy before changing settings"
         case .decoding(let e): return "decode: \(e)"
         case .transport(let e): return "transport: \(e)"
         }
@@ -333,7 +341,17 @@ final class APIClient {
     }
 
     func putSettings(_ s: Settings) async throws {
-        try await putJSON("/api/v1/settings", body: s)
+        let data = try encoder.encode(s)
+        let (respData, http) = try await rawRequest("PUT", "/api/v1/settings", body: data)
+        if (200...299).contains(http.statusCode) { return }
+        // 409 → proxy_running; map to a typed error so the UI can show a clear message.
+        if http.statusCode == 409 {
+            if let err = try? decoder.decode(APIErrorBody.self, from: respData),
+               err.error == "proxy_running" {
+                throw APIError.proxyRunning
+            }
+        }
+        throw APIError.status(http.statusCode, String(data: respData, encoding: .utf8) ?? "")
     }
 
     func setUniversalPassword(_ password: String) async throws {

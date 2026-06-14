@@ -40,10 +40,6 @@ type Deps struct {
 	// SyncKey is called by POST /api/v1/keys/:id/sync. Provided as a
 	// function pointer so api doesn't import sync directly.
 	SyncKey      func(ctx context.Context, keyID int64) error
-	// ReconfigureListeners is called after settings PUT so the HTTP/SOCKS5
-	// listeners can rebind to any changed host:port. Provided as a function
-	// pointer so api stays decoupled from the listener package.
-	ReconfigureListeners func() error
 	// StartProxy/StopProxy/ProxyStatus expose the listener state machine to
 	// the REST layer. Wired in by cli/run.go so the api package doesn't
 	// depend on listener internals.
@@ -171,6 +167,7 @@ func (s *Server) mountRoutes(r chi.Router) {
 
 	r.Get("/api/v1/settings", s.getSettings)
 	r.Put("/api/v1/settings", s.putSettings)
+	r.Get("/api/v1/settings/universal-password", s.getUniversalPassword)
 	r.Put("/api/v1/settings/universal-password", s.putUniversalPassword)
 	r.Get("/api/v1/subscription-url", s.subscriptionURLHandler)
 
@@ -681,6 +678,22 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// getUniversalPassword returns the current universal proxy password and whether
+// one is set: {"password": string, "set": bool}. Returns {"", false} when unset.
+//
+// Admin-only: it is mounted behind the same /api/v1/* admin auth as the rest of
+// the surface. This is not a new exposure — subscriptionURLHandler already
+// returns this password to authenticated admins; this endpoint just surfaces it
+// for in-place view/edit even when the subscription feature is disabled.
+func (s *Server) getUniversalPassword(w http.ResponseWriter, r *http.Request) {
+	pw, err := repo.LoadUniversalProxyPassword(r.Context(), s.deps.DB, s.deps.MasterKey)
+	if err != nil {
+		writeErr(w, 500, err.Error())
+		return
+	}
+	writeJSON(w, 200, map[string]any{"password": pw, "set": pw != ""})
+}
+
 // putUniversalPassword sets or clears the universal proxy password. An empty
 // password clears it (disables the feature). The value lives on its own
 // endpoint — decoupled from the bulk settings PUT — so a partial settings
@@ -713,16 +726,23 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid JSON")
 		return
 	}
+	// Settings are editable only while the proxy is stopped — listener-affecting
+	// fields (bind/port) take effect on the next Start ("apply 之后才能 start"),
+	// so there is no live-rebind path. Refuse the edit while running.
+	if s.deps.ProxyStatus != nil {
+		if running, _ := s.deps.ProxyStatus(); running {
+			writeJSON(w, 409, map[string]any{
+				"error":   "proxy_running",
+				"message": "stop the proxy before changing settings",
+			})
+			return
+		}
+	}
 	cur, err := repo.LoadSettings(r.Context(), s.deps.DB)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
 	}
-	// Snapshot the previous listener-affecting fields BEFORE the update —
-	// if Reconfigure fails because the new port is in use we restore them
-	// so the persisted state matches what the kernel still owns. Required
-	// by "新端口被占用 → 旧端口不释放".
-	prev := cur
 	cur.SyncIntervalMinutes = st.SyncIntervalMinutes
 	cur.ProxyPort = st.ProxyPort
 	cur.ProxyBind = st.ProxyBind
@@ -735,16 +755,6 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if err := repo.UpdateSettings(r.Context(), s.deps.DB, cur); err != nil {
 		writeErr(w, 500, err.Error())
 		return
-	}
-	if s.deps.ReconfigureListeners != nil {
-		if err := s.deps.ReconfigureListeners(); err != nil {
-			_ = repo.UpdateSettings(r.Context(), s.deps.DB, prev)
-			writeJSON(w, 409, map[string]any{
-				"error":   "port_in_use",
-				"message": err.Error(),
-			})
-			return
-		}
 	}
 	// The universal password is managed via its own endpoint and untouched
 	// here; report its real current state so this response stays consistent

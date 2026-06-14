@@ -98,8 +98,9 @@ final class AppState: ObservableObject {
         }
     }
 
-    // applySettings is the System-section "Apply" path. Surfaces a port-in-use
-    // conflict inline so the old listener stays bound (req #3 — 旧端口不释放).
+    // applySettings is the System-section "Apply" path. The button is disabled
+    // while proxyRunning, so a 409 should not occur in normal use; map it to a
+    // clear message in case it arrives anyway (e.g. from a concurrent change).
     @discardableResult
     func applySettings(_ s: Settings) async -> Bool {
         do {
@@ -107,6 +108,10 @@ final class AppState: ObservableObject {
             listenerError = nil
             await refreshAll()
             return true
+        } catch APIError.proxyRunning {
+            listenerError = "Stop the proxy before changing settings."
+            await refreshAll()
+            return false
         } catch {
             listenerError = error.localizedDescription
             await refreshAll()
