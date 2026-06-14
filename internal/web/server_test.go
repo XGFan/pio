@@ -355,6 +355,53 @@ func TestForwardAuth_SubscriptionStaysPublic(t *testing.T) {
 	}
 }
 
+func TestForwardAuth_LoginRedirectsToApp(t *testing.T) {
+	srv := newForwardAuthServer(t)
+	h := srv.handler()
+
+	// /login is a dead end in forward-auth mode — it must redirect to /app
+	// rather than serve the (unusable) password form. True with or without the
+	// trusted header; here without it, /app then 401s via its own gate.
+	req := httptest.NewRequest("GET", "/login", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("expected 302, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/app" {
+		t.Fatalf("expected redirect to /app, got %q", loc)
+	}
+}
+
+func TestLoginPage_PasswordMode(t *testing.T) {
+	srv := newTestServer(t, "secret")
+	h := srv.handler()
+
+	// Unauthenticated: serve the form (200, login.html body).
+	req := httptest.NewRequest("GET", "/login", nil)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unauth /login: expected 200, got %d", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), "login-form") {
+		t.Fatal("unauth /login did not serve login.html")
+	}
+
+	// Already authenticated: skip the form, redirect to /app.
+	cookie := loginAndCookie(t, h, "secret")
+	req = httptest.NewRequest("GET", "/login", nil)
+	req.AddCookie(cookie)
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+	if rec.Code != http.StatusFound {
+		t.Fatalf("authed /login: expected 302, got %d", rec.Code)
+	}
+	if loc := rec.Header().Get("Location"); loc != "/app" {
+		t.Fatalf("authed /login: expected redirect to /app, got %q", loc)
+	}
+}
+
 func TestForwardAuth_RootRedirectsToApp(t *testing.T) {
 	srv := newForwardAuthServer(t)
 	h := srv.handler()

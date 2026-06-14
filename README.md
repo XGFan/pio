@@ -108,10 +108,11 @@ piod run     [--data-dir=<path>] [--web-bind=<addr>] [--web-password=<s>]
 - `--web-auth-mode` — how the panel authenticates (default `password`):
   - `password` — the panel's own cookie-session password challenge.
   - `forward-auth` — trust an identity header injected by an upstream
-    forward-auth proxy (e.g. tinyauth). No password challenge; the panel is
-    open to anyone who can reach it directly, so **it MUST sit behind a proxy
-    that authenticates requests and strips client-supplied copies of the
-    header**.
+    forward-auth proxy (e.g. tinyauth). No password challenge; a hand-typed
+    `/login` redirects straight to the panel instead of showing a dead form.
+    The panel is open to anyone who can reach it directly, so **it MUST sit
+    behind a proxy that authenticates requests and strips client-supplied
+    copies of the header**.
 - `--web-password` — required in `password` mode; prefer the
   `$PIO_WEB_PASSWORD` env var to keep it out of the process list. Ignored in
   `forward-auth` mode.

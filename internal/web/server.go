@@ -147,7 +147,7 @@ func (s *Server) handler() http.Handler {
 	r := chi.NewRouter()
 
 	r.Get("/", s.rootHandler)
-	r.Get("/login", serveStatic("login.html"))
+	r.Get("/login", s.loginPageHandler)
 	r.Get("/app", s.requireAuth(serveStatic("index.html")))
 	r.Handle("/assets/*", http.StripPrefix("/assets/", http.FileServerFS(staticFS)))
 
@@ -185,6 +185,20 @@ func serveStatic(name string) http.HandlerFunc {
 		w.Header().Set("Cache-Control", "no-store")
 		http.ServeFileFS(w, r, staticFS, name)
 	}
+}
+
+// loginPageHandler serves the password login form only when it is both usable
+// and needed: password mode AND not yet authenticated. In forward-auth mode the
+// form is a dead end (loginHandler 404s, no password to match), and in password
+// mode an already-authenticated visitor doesn't need it — both cases redirect
+// straight to /app so a hand-typed /login never strands the user on a useless
+// page. /app then applies the active auth gate.
+func (s *Server) loginPageHandler(w http.ResponseWriter, r *http.Request) {
+	if s.opts.AuthMode != AuthModePassword || s.authenticated(r) {
+		http.Redirect(w, r, "/app", http.StatusFound)
+		return
+	}
+	serveStatic("login.html")(w, r)
 }
 
 func (s *Server) loginHandler(w http.ResponseWriter, r *http.Request) {
