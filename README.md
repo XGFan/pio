@@ -141,9 +141,12 @@ equivalent to full compromise.
 
 Edited in the admin UI (macOS app or web panel) or via `PUT /api/v1/settings`.
 
-**Settings are only editable while the proxy is stopped.** Applying settings
-while the proxy is running returns `409 proxy_running`. The flow is:
-**Stop → edit → Apply → Start**.
+**The listen address and port are only editable while the proxy is stopped**
+(they take effect on the next Start — there is no live rebind). Changing
+`proxy_bind`/`proxy_port` while running returns `409 proxy_running`; the flow is
+**Stop → edit → Apply → Start**. The other settings (sync interval, subscription
+host/enable, universal password) don't touch the listener and stay editable at
+any time.
 
 | Setting | Meaning |
 | --- | --- |

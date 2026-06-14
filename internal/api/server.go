@@ -726,22 +726,26 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 400, "invalid JSON")
 		return
 	}
-	// Settings are editable only while the proxy is stopped — listener-affecting
-	// fields (bind/port) take effect on the next Start ("apply 之后才能 start"),
-	// so there is no live-rebind path. Refuse the edit while running.
-	if s.deps.ProxyStatus != nil {
-		if running, _ := s.deps.ProxyStatus(); running {
-			writeJSON(w, 409, map[string]any{
-				"error":   "proxy_running",
-				"message": "stop the proxy before changing settings",
-			})
-			return
-		}
-	}
 	cur, err := repo.LoadSettings(r.Context(), s.deps.DB)
 	if err != nil {
 		writeErr(w, 500, err.Error())
 		return
+	}
+	// Only the listener bind (address/port) needs a stopped proxy: it takes
+	// effect on the next Start ("apply 之后才能 start") and there is no
+	// live-rebind path. Other fields (sync interval, subscription host/enable)
+	// don't touch the listener, so they stay editable while running. Refuse
+	// only a bind change while the proxy is running.
+	if st.ProxyBind != cur.ProxyBind || st.ProxyPort != cur.ProxyPort {
+		if s.deps.ProxyStatus != nil {
+			if running, _ := s.deps.ProxyStatus(); running {
+				writeJSON(w, 409, map[string]any{
+					"error":   "proxy_running",
+					"message": "stop the proxy before changing the listen address or port",
+				})
+				return
+			}
+		}
 	}
 	cur.SyncIntervalMinutes = st.SyncIntervalMinutes
 	cur.ProxyPort = st.ProxyPort

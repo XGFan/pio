@@ -3,6 +3,7 @@ package api_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,8 +68,9 @@ func TestGetUniversalPassword_Unset(t *testing.T) {
 	}
 }
 
-// TestPutSettings_409WhenRunning rejects a settings edit while the proxy is
-// running with a 409 {error:"proxy_running"} and leaves settings unchanged.
+// TestPutSettings_409WhenRunning rejects a LISTENER bind/port change while the
+// proxy is running with a 409 {error:"proxy_running"} and leaves settings
+// unchanged (the payload moves proxy_port to 9999, which needs a stop).
 func TestPutSettings_409WhenRunning(t *testing.T) {
 	db := store.MustOpenInMemoryTest(t)
 	t.Cleanup(func() { _ = db.Close() })
@@ -148,5 +150,48 @@ func TestPutSettings_SucceedsWhenStopped(t *testing.T) {
 	}
 	if st.ProxyPort != 9999 || st.ProxyBind != "0.0.0.0" || st.SyncIntervalMinutes != 30 {
 		t.Fatalf("persisted settings = %+v, want port=9999 bind=0.0.0.0 sync=30", st)
+	}
+}
+
+// TestPutSettings_NonBindEditWhileRunning allows editing non-listener fields
+// (sync interval, subscription host/enable) while the proxy is running, as long
+// as the listen bind/port is unchanged — only a bind change requires a stop.
+func TestPutSettings_NonBindEditWhileRunning(t *testing.T) {
+	db := store.MustOpenInMemoryTest(t)
+	t.Cleanup(func() { _ = db.Close() })
+	ctx := context.Background()
+	mk := subKey()
+	core := routing.NewCore(db.DB, mk)
+	if err := core.Hydrate(ctx); err != nil {
+		t.Fatalf("Hydrate: %v", err)
+	}
+	cur, err := repo.LoadSettings(ctx, db.DB)
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+
+	h := api.New(api.Deps{
+		DB:          db.DB,
+		MasterKey:   mk,
+		Core:        core,
+		DenyList:    auth.New(nil),
+		ProxyStatus: func() (bool, string) { return true, "127.0.0.1:8080" },
+	}).Handler()
+	// Same bind/port as persisted, but new sync + subscription values.
+	body := fmt.Sprintf(
+		`{"proxy_port":%d,"proxy_bind":%q,"sync_interval_minutes":%d,"subscription_enabled":true,"subscription_host":"proxy.example.com"}`,
+		cur.ProxyPort, cur.ProxyBind, cur.SyncIntervalMinutes+5,
+	)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, httptest.NewRequest(http.MethodPut, "/api/v1/settings", strings.NewReader(body)))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (non-bind edit while running); body=%s", rr.Code, rr.Body.String())
+	}
+	st, err := repo.LoadSettings(ctx, db.DB)
+	if err != nil {
+		t.Fatalf("LoadSettings: %v", err)
+	}
+	if !st.SubscriptionEnabled || st.SubscriptionHost != "proxy.example.com" || st.SyncIntervalMinutes != cur.SyncIntervalMinutes+5 {
+		t.Fatalf("non-bind settings not persisted while running: %+v", st)
 	}
 }

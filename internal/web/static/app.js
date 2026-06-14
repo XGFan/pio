@@ -274,8 +274,9 @@ function systemSection() {
   };
   const running = state.proxy.running;
 
-  // Running ⇒ System fields are read-only and the header offers only Stop.
-  // Stopped ⇒ fields editable; Apply persists, then Start (gated while dirty).
+  // Running ⇒ only the listen addr/port are locked (a bind change needs a
+  // stop); Sync + Apply stay live, and the header offers Stop instead of Start.
+  // Stopped ⇒ all fields editable; Apply persists, then Start (gated while dirty).
   const dirty = settingsFingerprint(s) !== state._settingsBaseline;
 
   // The Start button is held in a ref so the field handlers can flip its
@@ -325,13 +326,11 @@ function systemSection() {
         })),
         field('Sync (min)', inputEl({
           type: 'number', value: s.sync_interval_minutes, style: 'width:80px',
-          disabled: running ? '' : null,
           oninput: (e) => { s.sync_interval_minutes = parseInt(e.target.value || '0', 10); refreshStartGate(); },
         })),
         el('div', { class: 'grow' }),
         el('button', {
           class: 'primary',
-          disabled: running ? '' : null,
           onclick: () => applySettings(s),
         }, 'Apply'),
       ),
