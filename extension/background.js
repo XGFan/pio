@@ -9,6 +9,8 @@
 // so this listener still works after the service worker is torn down and
 // respawned.
 
+import { badgeAbbrev } from './lib/badge.js';
+
 const STORAGE_KEY = 'activeProxy';
 
 // Request IDs for which we have already offered proxy credentials in the
@@ -17,17 +19,6 @@ const STORAGE_KEY = 'activeProxy';
 // credentials on every retry would get the client banned. We offer once per
 // request, then decline.
 const credentialedRequests = new Set();
-
-// badgeAbbrev derives a short, toolbar-sized label from a proxy display name:
-// up to three uppercased letters/digits (e.g. "US-A-01" → "USA"). The filter is
-// Unicode-aware so non-Latin names ("日本-東京" → "日本東") still abbreviate to
-// something distinguishing rather than collapsing to the "ON" fallback, which
-// only applies when the name has no letters/digits at all (badge never blank
-// while a proxy is active). The full name is always in the tooltip.
-function badgeAbbrev(name) {
-  const compact = String(name || '').replace(/[^\p{L}\p{N}]/gu, '').toUpperCase();
-  return compact.slice(0, 3) || 'ON';
-}
 
 // reflectState paints the toolbar icon to match the active proxy: a green
 // badge + abbreviated name + full-name tooltip when proxied, cleared badge +

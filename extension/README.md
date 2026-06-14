@@ -35,7 +35,12 @@ popup.js ──(applyProxy)──▶ background.js ──▶ chrome.proxy.settin
   `onAuthRequired`, and reflects the active proxy on the toolbar icon (a green
   badge + the proxy name in the tooltip; cleared when disabled). The active
   proxy is persisted so the listener keeps working after the service worker is
-  recycled.
+  recycled. The badge text is derived from `lib/badge.js`: canonical PIO names
+  follow the pattern `{label}-{CC}-{NN}` (e.g. `share-DE-01`, `dedicated-US-01`),
+  so the badge shows segment[1] — the 2-letter country code (`DE`, `US`). Names
+  without a `-` fall back to a 3-character compact abbreviation of the full name
+  (`default` → `DEF`); the badge is never blank while a proxy is active.
+- **`lib/badge.js`** — exports `badgeAbbrev(name)`, the badge-text logic above.
 
 ### Immediate switching
 
@@ -55,10 +60,13 @@ immediate. The scope means real site cookies are never touched.
 2. Enable **Developer mode** (top-right).
 3. Click **Load unpacked** and select this `extension/` directory.
 4. Click the extension icon, paste your subscription URL (the one from the web
-   panel's "Copy subscription URL" button), and **Save**.
+   panel's "Copy subscription URL" button), and **Save**. The URL input hides
+   once saved — to change it, click the **✕ Remove** button in the subscription
+   header; the input reappears so you can enter a new URL.
 5. Pick a proxy from the list. The pill turns **On** and the toolbar icon shows
-   a green badge with the proxy's short name. Use **Disable** to stop using a
-   proxy (the badge clears).
+   a green badge with the proxy's country code (e.g. `DE` for `share-DE-01`,
+   `US` for `dedicated-US-01`). Use **Disable** to stop using a proxy (the badge
+   clears).
 
 > The extension always fetches with `type=http`; you can paste either the
 > `socks` or `http` form of the URL — the `type` parameter is normalized
@@ -101,8 +109,10 @@ from `manifest.json`, so bump its `"version"` before cutting a release.
 ## Tests
 
 ```sh
-# Unit tests (pure parser) — no browser needed
-node --test extension/test/parse.test.mjs   # or: cd extension && node --test
+# Unit tests (no browser needed)
+node extension/test/badge.test.mjs          # badge abbreviation logic
+node extension/test/parse.test.mjs          # subscription line parser
+# or run both at once: cd extension && node --test
 
 # End-to-end (loads the unpacked extension in Chromium, drives the popup,
 # and asserts chrome.proxy + credentials are applied). Requires Playwright;

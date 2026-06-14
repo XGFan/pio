@@ -35,9 +35,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const EXT_PATH = path.resolve(__dirname, '..');
 
 const PASS = 'p@ss:w0rd'; // includes : and @ to exercise percent-decoding
-const PROXY_A = 'US-A-01';
-const PROXY_B = 'US-B-02';
-const PROXY_C = 'US-C-03'; // only served by the "v2" (replacement) subscription
+const PROXY_A = 'share-US-01';
+const PROXY_B = 'share-DE-02';
+const PROXY_C = 'share-GB-03'; // only served by the "v2" (replacement) subscription
 const KNOWN = new Set([PROXY_A, PROXY_B, PROXY_C]);
 
 function listen(server) {
@@ -170,9 +170,9 @@ async function main() {
     assert((await popup.textContent('#active-name')).trim() === PROXY_A, 'active bar shows name only');
     assert((await popup.$('.pill-active')) !== null, 'status pill shows On (pill-active)');
 
-    // Issue 1: the toolbar badge reflects the active proxy (green abbrev).
-    await waitBadge('USA');
-    assert((await badgeText()) === 'USA', 'badge shows abbreviation of active proxy A');
+    // Issue 1: the toolbar badge reflects the active proxy (country code).
+    await waitBadge('US');
+    assert((await badgeText()) === 'US', 'badge shows country code of active proxy A (share-US-01 → US)');
 
     // (5) Real traffic through proxy A succeeds ONLY via onAuthRequired creds.
     const target = await context.newPage();
@@ -187,8 +187,8 @@ async function main() {
     await popup.bringToFront();
     await popup.locator('.proxy', { hasText: PROXY_B }).locator('.proxy-btn').click();
     await popup.locator('.proxy.selected', { hasText: PROXY_B }).waitFor({ timeout: 5000 });
-    await waitBadge('USB');
-    assert((await badgeText()) === 'USB', 'badge updates to proxy B after switch');
+    await waitBadge('DE');
+    assert((await badgeText()) === 'DE', 'badge updates to country code of proxy B (share-DE-02 → DE)');
 
     await target.goto('http://pio-e2e.test/after-switch', { timeout: 15000 });
     body = await target.content();
@@ -216,12 +216,25 @@ async function main() {
     assert((await badgeText()) === '', 'badge cleared when disabled');
 
     // (8) A second subscription URL REPLACES the first (single subscription).
+    // The input form is hidden while a subscription exists; click Remove (✕) to
+    // clear it, which makes the form reappear, then fill in the new URL.
+    assert(
+      await popup.$eval('.sub-form', (el) => el.hidden),
+      '.sub-form is hidden when a subscription is present',
+    );
+    await popup.click('[data-act="remove"]');
+    // After removing, the form must be visible again.
+    await popup.waitForFunction(() => !document.querySelector('.sub-form').hidden, { timeout: 5000 });
+    assert(
+      !(await popup.$eval('.sub-form', (el) => el.hidden)),
+      '.sub-form is visible when no subscription is present',
+    );
     await popup.fill('#sub-url', `http://127.0.0.1:${subPort}/subscription?password=secret&v2=1`);
     await popup.click('#add-form button[type="submit"]');
     await popup.waitForFunction(
       () => {
         const ns = [...document.querySelectorAll('.proxy-name')].map((e) => e.textContent.trim());
-        return ns.length === 1 && ns[0] === 'US-C-03';
+        return ns.length === 1 && ns[0] === 'share-GB-03';
       },
       { timeout: 10000 },
     );

@@ -9,6 +9,7 @@ const els = {
   statusPill: document.getElementById('status-pill'),
   activeName: document.getElementById('active-name'),
   btnDirect: document.getElementById('btn-direct'),
+  subForm: document.querySelector('.sub-form'),
   addForm: document.getElementById('add-form'),
   subUrl: document.getElementById('sub-url'),
   addError: document.getElementById('add-error'),
@@ -187,6 +188,11 @@ async function render() {
     els.statusPill.className = 'pill pill-direct';
     els.btnDirect.hidden = true;
   }
+
+  // Show the subscription input form only when no subscription is saved.
+  // Re-entering a URL is done via the Remove (✕) button in the subscription
+  // header, which clears the subscription and makes the form reappear.
+  els.subForm.hidden = subscription !== null;
 
   els.subs.replaceChildren();
   if (!subscription) {
