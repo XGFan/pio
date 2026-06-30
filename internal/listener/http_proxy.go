@@ -148,8 +148,16 @@ func (p *HTTPProxy) handleConn(ctx context.Context, conn net.Conn) {
 	upstream, upstreamPwd, cg, err := p.mgr.Acquire(ctx, username, password)
 	if err != nil {
 		// Record auth failures so the deny-list can ban abusive clients.
+		// Log the client IP when a ban first trips: bans were silent, which
+		// is exactly why a single mis-configured client (whose IP collapses
+		// with everyone else's under a SNAT'ing Service) could take down all
+		// proxy access with no trace. With externalTrafficPolicy: Local the
+		// logged IP is the real client, so the offender is identifiable.
 		if p.deny != nil && (errors.Is(err, tunnel.ErrUnknownUser) || errors.Is(err, tunnel.ErrBadPassword)) {
-			p.deny.RecordFailure(conn.RemoteAddr().String())
+			if p.deny.RecordFailure(conn.RemoteAddr().String()) {
+				p.log.Warn("client banned: too many proxy auth failures",
+					"client", clientIP(conn.RemoteAddr().String()))
+			}
 		}
 		p.handleAuthError(conn, err)
 		return
@@ -265,6 +273,15 @@ func (p *HTTPProxy) handleAuthError(conn net.Conn, err error) {
 	default:
 		write502(conn, "internal error")
 	}
+}
+
+// clientIP strips the ephemeral port from a "host:port" RemoteAddr so logs
+// show the host the deny-list actually keys on (bans are per-IP, port-agnostic).
+func clientIP(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	return remoteAddr
 }
 
 // parseProxyAuth extracts (username, password) from a Basic header.

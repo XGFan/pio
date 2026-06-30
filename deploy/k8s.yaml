@@ -123,6 +123,12 @@ metadata:
     metallb.io/loadBalancerIPs: 192.168.2.241
 spec:
   type: LoadBalancer
+  # 必须保留 Local：默认的 Cluster 会把所有 LAN 客户端 SNAT 成同一个集群内
+  # 源 IP，于是 pio 的 per-IP 认证失败封禁（10 次/60s → 封 5 分钟）会把一台
+  # 密码错的客户端连带封掉「所有」外部客户端 —— 表现为「突然全部代理无法访问」。
+  # Local 让 pod 看到真实客户端 IP：坏客户端只封自己，且其真实 IP 会进日志便于定位。
+  # 单节点 + MetalLB L2 下 Local 完全可用（VIP 从有 endpoint 的节点宣告）。
+  externalTrafficPolicy: Local
   selector:
     app: pio
   ports:

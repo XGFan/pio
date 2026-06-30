@@ -195,7 +195,10 @@ GET /subscription?password=<universal-password>&type=<socks|socks5|http>
 - Authentication is the `password` query parameter only — **no cookie**.
   Wrong/missing password → `401`; the endpoint returns `404` when disabled or
   no universal password is set. Failed attempts are rate-limited per IP by the
-  shared deny-list (10 failures / 60s → 5-minute ban).
+  shared deny-list (10 failures / 60s → 5-minute ban). When a ban first trips,
+  the offending client IP is logged at `WARN` (`client banned: …`) so a
+  mis-configured client can be tracked down — see the deployment note below on
+  why the proxy Service must preserve real client IPs.
 - The optional `type` parameter selects the line scheme. `socks`, `socks5`, and
   the omitted default all emit SOCKS lines; `http` emits HTTP-proxy lines. Both
   point at the **same** unified proxy port (it auto-detects the protocol from
@@ -227,6 +230,16 @@ a PVC for `/data`, the web panel on `:9090` behind a Traefik ingress, and the
 unified proxy port (`:8080`) exposed via a MetalLB `LoadBalancer` Service.
 CI (`.woodpecker.yaml`) applies the manifest and rolls the new image on each
 push to `master`.
+
+The proxy `LoadBalancer` sets **`externalTrafficPolicy: Local`** — this is
+load-bearing, not a tweak. Under the default `Cluster` policy kube-proxy SNATs
+every LAN client to one in-cluster source IP, so all clients share a single
+identity in the per-IP deny-list: a single client spamming wrong credentials
+trips the 10-failures/60s ban and silently knocks **every** LAN client offline
+(TCP connects, then the daemon closes it before the first byte). `Local`
+preserves the real client IP, so a bad client only bans itself and shows up in
+the ban log. On single-node MetalLB L2 the VIP is announced from the node that
+holds the pod, so `Local` keeps full reachability.
 
 The shipped manifest runs the panel in **`forward-auth` mode** behind the
 cluster's tinyauth (a Traefik `forwardAuth` middleware): users authenticate at

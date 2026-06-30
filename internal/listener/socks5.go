@@ -174,7 +174,10 @@ func (p *SOCKS5Proxy) handleConn(ctx context.Context, conn net.Conn) {
 	upstream, upstreamPwd, cg, err := p.mgr.Acquire(ctx, username, password)
 	if err != nil {
 		if p.deny != nil && (errors.Is(err, tunnel.ErrUnknownUser) || errors.Is(err, tunnel.ErrBadPassword)) {
-			p.deny.RecordFailure(conn.RemoteAddr().String())
+			if p.deny.RecordFailure(conn.RemoteAddr().String()) {
+				p.log.Warn("client banned: too many proxy auth failures",
+					"client", clientIP(conn.RemoteAddr().String()))
+			}
 		}
 		_, _ = conn.Write([]byte{authVerUserPwd, 0x01})
 		_ = conn.Close()
