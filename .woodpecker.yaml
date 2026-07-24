@@ -1,7 +1,6 @@
 when:
   branch: master
   event: [push, manual]
-
 steps:
   - name: test
     image: golang:1.26-alpine
@@ -10,7 +9,6 @@ steps:
       - apk add --no-cache git
       - go vet ./...
       - go test -timeout 3m ./...
-
   - name: build
     image: docker.test4x.com/xgfan/plugin-docker-buildx-check
     settings:
@@ -18,7 +16,7 @@ steps:
       registry: docker.test4x.com
       mirror: https://docker.test4x.com
       tags:
-        - "${CI_COMMIT_SHA:0:8}"
+        - "${CI_COMMIT_BRANCH}-${CI_COMMIT_SHA:0:8}-${CI_PIPELINE_NUMBER}"
         - latest
       mtu: 1450
       cache_from: docker.test4x.com/xgfan/pio:cache
@@ -27,27 +25,6 @@ steps:
         from_secret: docker_username
       password:
         from_secret: docker_password
-
-  - name: deploy
-    image: bitnami/kubectl:latest
-    commands:
-      - echo "$KUBECONFIG_DATA" > /tmp/kubeconfig
-      - export KUBECONFIG=/tmp/kubeconfig
-      # Apply manifest first so new env vars / container ports / the
-      # MetalLB LoadBalancer Service for SOCKS5+HTTP are picked up before
-      # the image roll. -n default guards against kubeconfigs whose
-      # default namespace is something other than `default` — resources
-      # in the manifest that omit a namespace would otherwise be created
-      # in the wrong place and Traefik would see two ingresses.
-      - kubectl apply -n default -f deploy/k8s.yaml
-      - kubectl set image deployment/pio pio=docker.test4x.com/xgfan/pio:$(echo $CI_COMMIT_SHA | cut -c1-8) -n default
-      # Block until the new ReplicaSet is fully rolled out (or fail CI).
-      - kubectl rollout status deployment/pio -n default --timeout=180s
-      - rm -f /tmp/kubeconfig
-    environment:
-      KUBECONFIG_DATA:
-        from_secret: kubeconfig
-
   - name: notify-success
     image: docker.test4x.com/xgfan/plugin-bark
     failure: ignore
@@ -55,7 +32,6 @@ steps:
       token:
         from_secret: bark_token
       status: success
-
   - name: notify-failure
     image: docker.test4x.com/xgfan/plugin-bark
     failure: ignore
