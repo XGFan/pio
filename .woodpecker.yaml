@@ -25,6 +25,17 @@ steps:
         from_secret: docker_username
       password:
         from_secret: docker_password
+  # 叫 Flux 立刻扫 registry(否则等 ImageRepository 的 5m 轮询)。agent 是 k8s backend、
+  # 跑在集群内,直连 ClusterIP 即可。见 infra k8s/apps/flux2bark/README.md。
+  - name: trigger-flux
+    image: alpine:3.20
+    failure: ignore # webhook 挂了不该让流水线变红
+    environment:
+      FLUX_URL:
+        from_secret: flux_webhook_url
+    commands:
+      - apk add --no-cache curl >/dev/null
+      - curl -sf -X POST "$FLUX_URL" -d '{}' && echo "[flux] scan triggered"
   - name: notify-success
     image: docker.test4x.com/xgfan/plugin-bark
     failure: ignore
