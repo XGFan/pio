@@ -16,7 +16,7 @@ steps:
       registry: docker.test4x.com
       mirror: https://docker.test4x.com
       tags:
-        - "${CI_COMMIT_BRANCH}-${CI_COMMIT_SHA:0:8}-${CI_PIPELINE_NUMBER}"
+        - "${CI_COMMIT_SHA:0:8}"
         - latest
       mtu: 1450
       cache_from: docker.test4x.com/xgfan/pio:cache
@@ -25,7 +25,16 @@ steps:
         from_secret: docker_username
       password:
         from_secret: docker_password
-  # 叫 Flux 立刻扫 registry(否则等 ImageRepository 的 5m 轮询)。agent 是 k8s backend、
+  # 把 infra 仓库里该 app 的 image tag 改成本次构建的 sha8 并 push —— 部署由这一步决定。
+  # 失败必须让流水线变红(它就是部署本身)。见 infra k8s/apps/woodpecker/plugins/flux-bump.sh。
+  - name: flux-bump
+    image: docker.test4x.com/xgfan/plugin-flux-bump
+    settings:
+      repo: docker.test4x.com/xgfan/pio
+      tag: "${CI_COMMIT_SHA:0:8}"
+      ssh_key:
+        from_secret: infra_deploy_key
+  # 叫 Flux 立刻拉 git(否则等 GitRepository 的 1m 轮询)。agent 是 k8s backend、
   # 跑在集群内,直连 ClusterIP 即可。见 infra k8s/apps/flux2bark/README.md。
   - name: trigger-flux
     image: alpine:3.20
@@ -35,7 +44,7 @@ steps:
         from_secret: flux_webhook_url
     commands:
       - apk add --no-cache curl >/dev/null
-      - curl -sf -X POST "$FLUX_URL" -d '{}' && echo "[flux] scan triggered"
+      - curl -sf -X POST "$FLUX_URL" -d '{}' && echo "[flux] git pull triggered"
   - name: notify-success
     image: docker.test4x.com/xgfan/plugin-bark
     failure: ignore
