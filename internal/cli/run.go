@@ -281,6 +281,27 @@ func runDaemon(ctx context.Context, deps Deps, args []string) int {
 		}
 		return out, nil
 	}
+	// Single-upstream probe: same persistence contract as the batch above
+	// (-1 records a failed probe), just scoped to one id so the UI can test a
+	// freshly added manual proxy without probing every synced upstream.
+	apiSrv.Deps().TestUpstreamLatency = func(ctx context.Context, upstreamID string) (*api.LatencyResult, error) {
+		ups, err := repo.ListAllResolvedUpstreams(ctx, db, masterKey)
+		if err != nil {
+			return nil, err
+		}
+		up, ok := ups[upstreamID]
+		if !ok {
+			return nil, repo.ErrNotFound
+		}
+		results := latency.RunBatch(ctx, mgr, []repo.ResolvedUpstream{*up}, 1)
+		r := results[0]
+		ms := -1
+		if r.OK {
+			ms = r.LatencyMS
+		}
+		_ = repo.UpdateUpstreamLatency(ctx, db, r.UpstreamID, ms, time.Now().UTC())
+		return &api.LatencyResult{UpstreamID: r.UpstreamID, OK: r.OK, LatencyMS: r.LatencyMS}, nil
+	}
 	apiSrv.Deps().WebshareReplaceOptions = func(ctx context.Context, keyID int64) (*api.ReplaceOptions, error) {
 		cfg, err := syncSvc.WebshareConfig(ctx, keyID)
 		if err != nil {

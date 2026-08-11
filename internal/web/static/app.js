@@ -145,6 +145,7 @@ function renderManualProxiesTable() {
       el('td', {}, latencyCell(p.last_latency_ms)),
       el('td', { class: 'actions' },
         el('div', { class: 'action-group' },
+          el('button', { class: 'test-latency-btn icon', title: 'Test connectivity', onclick: (e) => testUpstreamLatency(p.id, e.currentTarget) }, icon('clock')),
           el('button', { class: 'icon', title: 'Edit', onclick: () => openManualProxyModal(p) }, icon('edit')),
           el('button', { class: 'icon danger-icon', title: 'Delete', onclick: () => deleteManualProxy(p) }, icon('close')),
         ),
@@ -480,6 +481,16 @@ async function testLatency() {
   btns.forEach(b => { b.disabled = true; b.classList.add('spinning'); });
   try { await apiPOST('/api/v1/upstreams/test-latency'); }
   catch (e) { alert('Latency test failed: ' + e.message); }
+  await refreshAll();
+}
+
+// testUpstreamLatency probes a single upstream. Only the clicked button spins —
+// the batch button's document-wide disable would be wrong here, since the rest
+// of the table is untouched by a one-proxy probe.
+async function testUpstreamLatency(id, btn) {
+  if (btn) { btn.disabled = true; btn.classList.add('spinning'); }
+  try { await apiPOST(`/api/v1/upstreams/${encodeURIComponent(id)}/test-latency`); }
+  catch (e) { alert('Connectivity test failed: ' + e.message); }
   await refreshAll();
 }
 

@@ -58,6 +58,9 @@ type Deps struct {
 	// TestAllLatency probes every upstream's latency (batched) and persists
 	// the results. Wired in cli/run.go.
 	TestAllLatency func(ctx context.Context) ([]LatencyResult, error)
+	// TestUpstreamLatency probes one upstream by id and persists the result.
+	// Returns repo.ErrNotFound for an unknown id. Wired in cli/run.go.
+	TestUpstreamLatency func(ctx context.Context, upstreamID string) (*LatencyResult, error)
 	// PasswordPeek is rate-limited (1/sec/IP) by the server itself.
 	now func() time.Time
 }
@@ -151,6 +154,7 @@ func (s *Server) mountRoutes(r chi.Router) {
 	r.Patch("/api/v1/upstreams/{id}", s.patchUpstream)
 	r.Post("/api/v1/upstreams/{id}/replace", s.replaceUpstream)
 	r.Post("/api/v1/upstreams/test-latency", s.testLatency)
+	r.Post("/api/v1/upstreams/{id}/test-latency", s.testUpstreamLatency)
 	r.Get("/api/v1/keys/{id}/replace-options", s.replaceOptions)
 
 	r.Get("/api/v1/manual-proxies", s.listManualProxies)

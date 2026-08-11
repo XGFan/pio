@@ -27,6 +27,14 @@ menu-bar app and an optional cookie-protected LAN web panel.
     Only upstreams with an **unambiguous** display name are routable this way.
 - **Upstream sources:** Webshare API keys (periodic sync of the proxy list)
   and manually-added HTTP / HTTPS / SOCKS5 proxies.
+- **Connectivity / latency testing.** On-demand probes that fetch
+  `http://www.gstatic.com/generate_204` through a proxy and record the
+  round-trip time, shown in the admin UI's Latency column (`failed` when the
+  probe did not complete). `POST /api/v1/upstreams/test-latency` probes every
+  upstream in one batch; `POST /api/v1/upstreams/{id}/test-latency` probes a
+  single one — that is the per-row test button in the web panel's Manual
+  Proxies table, so a freshly added manual proxy can be checked on its own
+  without probing the whole synced fleet.
 - **Built-in `default` upstream.** A reserved, always-present upstream named
   `default` that egresses straight out of the daemon's own host network — no
   upstream hop. Map a user to it (it's offered in the admin UI's mapping
