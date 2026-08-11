@@ -181,13 +181,50 @@ async function deleteManualProxy(p) {
   await refreshAll();
 }
 
+// Schemes accepted in a pasted proxy URL, mapped onto the three protocols the
+// daemon stores. socks/socks5h are common spellings of the same SOCKS5 dial.
+const PROXY_URL_SCHEMES = {
+  http: 'http', https: 'https', socks: 'socks5', socks5: 'socks5', socks5h: 'socks5',
+};
+const PROXY_URL_DEFAULT_PORTS = { http: 80, https: 443 };
+
+// parseProxyURL turns "socks5://user:pass@host:port" into the manual-proxy
+// fields. Returns null for anything it doesn't fully recognise so the caller
+// leaves the form alone rather than half-filling it from a bad paste.
+function parseProxyURL(text) {
+  const raw = (text || '').trim();
+  if (!raw.includes('://')) return null; // bare "host:port" would parse as a scheme
+  let u;
+  try { u = new URL(raw); } catch (_) { return null; }
+  const protocol = PROXY_URL_SCHEMES[u.protocol.replace(/:$/, '').toLowerCase()];
+  if (!protocol) return null;
+  // URL keeps IPv6 literals bracketed; the daemon stores a bare host and lets
+  // net.JoinHostPort re-add the brackets when dialling.
+  const host = u.hostname.replace(/^\[/, '').replace(/\]$/, '');
+  // The URL parser drops a port that equals the scheme default (http 80 /
+  // https 443), so put it back — the daemon has no per-protocol default.
+  const port = parseInt(u.port, 10) || PROXY_URL_DEFAULT_PORTS[protocol] || 0;
+  if (!host || !port) return null;
+  return {
+    protocol, host, port,
+    username: decodeURIComponentSafe(u.username),
+    password: decodeURIComponentSafe(u.password),
+  };
+}
+
+// Credentials come back percent-encoded; a malformed sequence must not throw
+// away an otherwise good paste, so fall back to the raw text.
+function decodeURIComponentSafe(s) {
+  try { return decodeURIComponent(s); } catch (_) { return s; }
+}
+
 // openManualProxyModal handles both add (existing=undefined) and edit modes.
 function openManualProxyModal(existing) {
   const root = document.getElementById('modal-root');
   root.innerHTML = '';
   const isEdit = !!existing;
 
-  const nameInput = inputEl({ autofocus: '', value: isEdit ? (existing.manual_name || existing.display_name) : '' });
+  const nameInput = inputEl({ autofocus: isEdit ? '' : null, value: isEdit ? (existing.manual_name || existing.display_name) : '' });
   const hostInput = inputEl({ value: isEdit ? existing.host : '' });
   const portInput = inputEl({ type: 'number', value: isEdit ? existing.port : '8080', style: 'width:90px' });
   const protocolSelect = selectEl({}, [
@@ -205,6 +242,46 @@ function openManualProxyModal(existing) {
 
   const close = () => { root.innerHTML = ''; };
   const showErr = (msg) => { errEl.textContent = msg; errEl.style.display = ''; };
+
+  // --- Paste-a-URL shortcut (add mode only; edit keeps "blank password = keep
+  // current", which a paste-fill would quietly break). ---
+  const urlInput = isEdit ? null : inputEl({
+    autofocus: '', class: 'mono',
+    placeholder: 'socks5://user:pass@host:port',
+  });
+  const urlHintEl = isEdit ? null : el('div', { class: 'muted', style: 'font-size:12px;margin-top:4px' },
+    'Optional — paste a proxy URL to fill the fields below.');
+
+  const applyParsedURL = (p) => {
+    hostInput.value = p.host;
+    portInput.value = String(p.port);
+    protocolSelect.value = p.protocol;
+    usernameInput.value = p.username;
+    passwordInput.value = p.password;
+    // Only seed the name when the operator hasn't typed one — never clobber it.
+    if (!nameInput.value.trim()) nameInput.value = `${p.host}:${p.port}`;
+  };
+
+  if (!isEdit) {
+    urlInput.addEventListener('input', () => {
+      const raw = urlInput.value.trim();
+      const parsed = raw ? parseProxyURL(raw) : null;
+      if (parsed) {
+        applyParsedURL(parsed);
+        urlHintEl.textContent = 'Filled in below — edit anything before adding.';
+      } else {
+        urlHintEl.textContent = raw
+          ? 'Not a recognised proxy URL. Expected scheme://[user:pass@]host:port with http, https, or socks5.'
+          : 'Optional — paste a proxy URL to fill the fields below.';
+      }
+    });
+    // Pasting the URL straight into Host is the other natural gesture; parsing
+    // it there too avoids a dead end where the paste just fails validation.
+    hostInput.addEventListener('input', () => {
+      const parsed = parseProxyURL(hostInput.value);
+      if (parsed) applyParsedURL(parsed);
+    });
+  }
 
   const submit = async () => {
     const payload = {
@@ -245,6 +322,7 @@ function openManualProxyModal(existing) {
     el('div', { class: 'modal-backdrop', onclick: (e) => { if (e.target.classList.contains('modal-backdrop')) close(); } },
       el('div', { class: 'modal' },
         el('h3', {}, isEdit ? 'Edit manual proxy' : 'Add manual proxy'),
+        isEdit ? null : el('div', { class: 'field' }, el('label', {}, 'Proxy URL'), urlInput, urlHintEl),
         el('div', { class: 'field' }, el('label', {}, 'Name (unique)'), nameInput),
         el('div', { class: 'field' }, el('label', {}, 'Host'), hostInput),
         el('div', { class: 'row' },

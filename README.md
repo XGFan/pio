@@ -26,7 +26,10 @@ menu-bar app and an optional cookie-protected LAN web panel.
     password` to route through that specific proxy, no per-proxy user needed.
     Only upstreams with an **unambiguous** display name are routable this way.
 - **Upstream sources:** Webshare API keys (periodic sync of the proxy list)
-  and manually-added HTTP / HTTPS / SOCKS5 proxies.
+  and manually-added HTTP / HTTPS / SOCKS5 proxies. The web panel's *Add manual
+  proxy* dialog accepts a pasted proxy URL
+  (`socks5://user:pass@host:port`, also `http`/`https`/`socks`/`socks5h`) and
+  fills in the protocol, host, port and credentials from it.
 - **Connectivity / latency testing.** On-demand probes that fetch
   `http://www.gstatic.com/generate_204` through a proxy and record the
   round-trip time, shown in the admin UI's Latency column (`failed` when the
