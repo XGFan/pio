@@ -137,6 +137,10 @@ func (p *SOCKS5Proxy) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
+	// Bound the handshake (steps 1-3) in time: a client that stalls in it is
+	// cut off instead of pinning the goroutine.
+	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+
 	// 1. Negotiation: read [VER, NMETHODS, METHODS...] and pick user/pass.
 	hdr := make([]byte, 2)
 	if _, err := io.ReadFull(conn, hdr); err != nil {
@@ -215,6 +219,7 @@ func (p *SOCKS5Proxy) handleConn(ctx context.Context, conn net.Conn) {
 		_ = conn.Close()
 		return
 	}
+	_ = conn.SetReadDeadline(time.Time{}) // handshake done; the tunnel has no deadline
 
 	// 4. Dial upstream via HTTP CONNECT. Target is passed VERBATIM —
 	// for ATYP=0x03 (domain), we never resolve it locally. That's the

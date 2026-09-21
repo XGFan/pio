@@ -24,6 +24,13 @@ import (
 // against an externally-exposed port.
 const sniffDeadline = 10 * time.Second
 
+// handshakeTimeout bounds how long a client may take to finish the
+// unauthenticated part of its protocol once it has started talking: the HTTP
+// request head, or the SOCKS5 greeting, auth and request. Without it a client
+// that stops mid-handshake pins a goroutine and a socket for good. A var so
+// tests can shorten it; tests that do must not run in parallel.
+var handshakeTimeout = 10 * time.Second
+
 // UnifiedProxy serves BOTH the HTTP forward proxy and SOCKS5 on a single
 // port. For each accepted connection it reads one byte and dispatches:
 //

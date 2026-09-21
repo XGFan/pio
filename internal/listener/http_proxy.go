@@ -135,12 +135,19 @@ func (p *HTTPProxy) handleConn(ctx context.Context, conn net.Conn) {
 		return
 	}
 
-	br := bufio.NewReader(conn)
+	// Bound the unauthenticated request head in time and size: ReadRequest
+	// alone would wait forever on a stalled client and buffer an endless
+	// header line until piod runs out of memory.
+	_ = conn.SetReadDeadline(time.Now().Add(handshakeTimeout))
+	head := &io.LimitedReader{R: conn, N: http.DefaultMaxHeaderBytes}
+	br := bufio.NewReader(head)
 	req, err := http.ReadRequest(br)
 	if err != nil {
 		_ = conn.Close()
 		return
 	}
+	head.N = math.MaxInt64 // a plain-HTTP request body streams uncapped
+	_ = conn.SetReadDeadline(time.Time{})
 
 	username, password, ok := parseProxyAuth(req.Header.Get("Proxy-Authorization"))
 	if !ok {
