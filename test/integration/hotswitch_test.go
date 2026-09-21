@@ -4,10 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -252,4 +254,33 @@ func TestAC3_HotSwitchForceDisconnect(t *testing.T) {
 	if got := len(s.upstream2.Requests()); got < 1 {
 		t.Errorf("upstream2 should have received ≥ 1 CONNECT after swap, got %d", got)
 	}
+}
+
+// TestAC3_HotSwitchTearsDownPlainHTTP: a plain-HTTP (absolute-form) request
+// still waiting on its origin is torn down by a hot-switch like a tunnel is.
+func TestAC3_HotSwitchTearsDownPlainHTTP(t *testing.T) {
+	s := newHotSwitchScenario(t)
+	o := newRawOrigin(t, func(net.Conn) {}) // never answers
+
+	conn, err := net.Dial("tcp", s.proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	sendAbsoluteGet(t, conn, o.addr)
+	waitSignal(t, o.gotReq, "request at origin")
+
+	if err := s.core.SwapUserMapping(context.Background(), scenLocalUser, s.upstream2ID,
+		func(oldUser *routing.ResolvedUser) {
+			s.reg.CloseByUserUpstream(oldUser.Username, oldUser.UpstreamID)
+		},
+	); err != nil {
+		t.Fatalf("SwapUserMapping: %v", err)
+	}
+
+	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
+	if _, err := conn.Read(make([]byte, 64)); err == nil || errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Fatalf("client read after swap: %v; want the connection closed", err)
+	}
+	waitSignal(t, o.closed, "origin connection closed after swap")
 }

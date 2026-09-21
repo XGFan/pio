@@ -10,11 +10,16 @@ import (
 	"bufio"
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
+	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -334,5 +339,265 @@ func TestAC2_HTTPBadPasswordReturns407(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusProxyAuthRequired {
 		t.Fatalf("status = %d want 407", resp.StatusCode)
+	}
+}
+
+// recordingOrigin is a plain-HTTP origin that records what the proxy delivered
+// to it and answers with "<path> <body>".
+type recordingOrigin struct {
+	*httptest.Server
+	mu        sync.Mutex
+	paths     []string
+	proxyAuth []string // non-empty Proxy-Authorization values it received
+}
+
+func newRecordingOrigin(t *testing.T) *recordingOrigin {
+	t.Helper()
+	o := &recordingOrigin{}
+	o.Server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		o.mu.Lock()
+		o.paths = append(o.paths, r.URL.Path)
+		if v := r.Header.Get("Proxy-Authorization"); v != "" {
+			o.proxyAuth = append(o.proxyAuth, v)
+		}
+		o.mu.Unlock()
+		fmt.Fprintf(w, "%s %s", r.URL.Path, body)
+	}))
+	t.Cleanup(o.Close)
+	return o
+}
+
+func (o *recordingOrigin) seen() (paths, proxyAuth []string) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return append([]string(nil), o.paths...), append([]string(nil), o.proxyAuth...)
+}
+
+// proxyRoundTrip writes one absolute-form request on conn and reads the reply.
+func proxyRoundTrip(conn net.Conn, br *bufio.Reader, method, rawURL, body string) (*http.Response, string, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return nil, "", err
+	}
+	authHdr := "Basic " + base64.StdEncoding.EncodeToString([]byte(scenLocalUser+":"+scenLocalPwd))
+	if _, err := fmt.Fprintf(conn, "%s %s HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\nContent-Length: %d\r\n\r\n%s",
+		method, rawURL, u.Host, authHdr, len(body), body); err != nil {
+		return nil, "", err
+	}
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		return nil, "", err
+	}
+	defer resp.Body.Close()
+	got, err := io.ReadAll(resp.Body)
+	return resp, string(got), err
+}
+
+// TestHTTPAbsoluteForm_KeepAliveNoLeakNoMisroute: a keep-alive client (e.g.
+// Chrome) sends its next plain-HTTP request, with Proxy-Authorization, on the
+// same connection. That request must never reach the first request's origin,
+// and no origin may ever see Proxy-Authorization.
+func TestHTTPAbsoluteForm_KeepAliveNoLeakNoMisroute(t *testing.T) {
+	s := newScenario(t)
+	a := newRecordingOrigin(t)
+	b := newRecordingOrigin(t)
+
+	conn, err := net.Dial("tcp", s.proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	br := bufio.NewReader(conn)
+
+	resp, body, err := proxyRoundTrip(conn, br, "GET", a.URL+"/one", "")
+	if err != nil {
+		t.Fatalf("first request: %v", err)
+	}
+	if resp.StatusCode != http.StatusOK || body != "/one " {
+		t.Fatalf("first request: status %d body %q", resp.StatusCode, body)
+	}
+	if !resp.Close {
+		t.Errorf("first response lacks Connection: close; the client would reuse the connection")
+	}
+
+	if resp, body, err := proxyRoundTrip(conn, br, "GET", b.URL+"/two", ""); err == nil {
+		t.Errorf("second request on the same connection got status %d %q; want the connection closed", resp.StatusCode, body)
+	} else if errors.Is(err, os.ErrDeadlineExceeded) {
+		t.Errorf("second request on the same connection hung; want the connection closed")
+	}
+
+	// A fresh connection carries the second request to its own origin.
+	conn2, err := net.Dial("tcp", s.proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn2.Close()
+	_ = conn2.SetDeadline(time.Now().Add(5 * time.Second))
+	if _, body, err := proxyRoundTrip(conn2, bufio.NewReader(conn2), "GET", b.URL+"/two", ""); err != nil || body != "/two " {
+		t.Fatalf("second request on a new connection: body %q err %v", body, err)
+	}
+
+	aPaths, aAuth := a.seen()
+	bPaths, bAuth := b.seen()
+	if strings.Join(aPaths, ",") != "/one" {
+		t.Errorf("origin A received %v, want only [/one]", aPaths)
+	}
+	if strings.Join(bPaths, ",") != "/two" {
+		t.Errorf("origin B received %v, want only [/two]", bPaths)
+	}
+	if len(aAuth)+len(bAuth) != 0 {
+		t.Errorf("Proxy-Authorization leaked to origins: A=%v B=%v", aAuth, bAuth)
+	}
+}
+
+// TestHTTPAbsoluteForm_ForwardsRequestBody: a plain-HTTP POST reaches the
+// origin with its body intact.
+func TestHTTPAbsoluteForm_ForwardsRequestBody(t *testing.T) {
+	s := newScenario(t)
+	o := newRecordingOrigin(t)
+
+	conn, err := net.Dial("tcp", s.proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+
+	resp, body, err := proxyRoundTrip(conn, bufio.NewReader(conn), "POST", o.URL+"/form?x=1", "hello=world")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != http.StatusOK || body != "/form hello=world" {
+		t.Fatalf("status %d body %q, want 200 %q", resp.StatusCode, body, "/form hello=world")
+	}
+}
+
+// rawOrigin is a plain-HTTP origin that reads one request head per
+// connection, lets respond write whatever it likes, then reports when the
+// proxy side closes the connection.
+type rawOrigin struct {
+	addr   string
+	gotReq chan struct{}
+	closed chan struct{}
+}
+
+func newRawOrigin(t *testing.T, respond func(net.Conn)) *rawOrigin {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	o := &rawOrigin{addr: ln.Addr().String(), gotReq: make(chan struct{}, 4), closed: make(chan struct{}, 4)}
+	var (
+		mu    sync.Mutex
+		conns []net.Conn
+		wg    sync.WaitGroup
+	)
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			mu.Lock()
+			conns = append(conns, c)
+			mu.Unlock()
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				defer c.Close()
+				if _, err := http.ReadRequest(bufio.NewReader(c)); err != nil {
+					return
+				}
+				signal(o.gotReq)
+				respond(c)
+				_, _ = io.Copy(io.Discard, c)
+				signal(o.closed)
+			}()
+		}
+	}()
+	t.Cleanup(func() {
+		_ = ln.Close()
+		mu.Lock()
+		for _, c := range conns {
+			_ = c.Close()
+		}
+		mu.Unlock()
+		wg.Wait()
+	})
+	return o
+}
+
+// signal never blocks, so an undrained channel can't wedge cleanup.
+func signal(ch chan struct{}) {
+	select {
+	case ch <- struct{}{}:
+	default:
+	}
+}
+
+func waitSignal(t *testing.T, ch <-chan struct{}, what string) {
+	t.Helper()
+	select {
+	case <-ch:
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timed out waiting for %s", what)
+	}
+}
+
+// sendAbsoluteGet writes a plain-HTTP GET for http://addr/ as alice.
+func sendAbsoluteGet(t *testing.T, conn net.Conn, addr string) {
+	t.Helper()
+	authHdr := "Basic " + base64.StdEncoding.EncodeToString([]byte(scenLocalUser+":"+scenLocalPwd))
+	if _, err := fmt.Fprintf(conn, "GET http://%s/ HTTP/1.1\r\nHost: %s\r\nProxy-Authorization: %s\r\n\r\n",
+		addr, addr, authHdr); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestHTTPAbsoluteForm_ClientGoneFreesUpstream: a client that disconnects
+// while the origin has not answered yet releases the upstream connection.
+func TestHTTPAbsoluteForm_ClientGoneFreesUpstream(t *testing.T) {
+	s := newScenario(t)
+	o := newRawOrigin(t, func(net.Conn) {}) // never answers
+
+	conn, err := net.Dial("tcp", s.proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sendAbsoluteGet(t, conn, o.addr)
+	waitSignal(t, o.gotReq, "request at origin")
+	_ = conn.Close()
+	waitSignal(t, o.closed, "origin connection closed after client left")
+}
+
+// TestHTTPAbsoluteForm_OversizedResponseHeader: an origin streaming an
+// endless header gets a 502 once the header cap is hit, instead of piod
+// buffering it without bound.
+func TestHTTPAbsoluteForm_OversizedResponseHeader(t *testing.T) {
+	s := newScenario(t)
+	o := newRawOrigin(t, func(c net.Conn) {
+		_, _ = io.WriteString(c, "HTTP/1.1 200 OK\r\nX-Big: ")
+		_, _ = io.WriteString(c, strings.Repeat("a", 2*http.DefaultMaxHeaderBytes))
+	})
+
+	conn, err := net.Dial("tcp", s.proxyAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close()
+	_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	sendAbsoluteGet(t, conn, o.addr)
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", resp.StatusCode)
 	}
 }

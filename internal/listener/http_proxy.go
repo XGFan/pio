@@ -4,7 +4,8 @@
 //
 // Phase 2 ships the HTTP listener; Phase 3 adds SOCKS5. Hot-switch
 // (Phase 4) does not require listener-side changes — cancellation
-// propagates through tunnel.Bridge via the CancelGroup context.
+// propagates via the CancelGroup context, through tunnel.Bridge for tunnels
+// and handleAbsoluteForm's own teardown for plain-HTTP requests.
 package listener
 
 import (
@@ -15,8 +16,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -217,10 +220,20 @@ func (p *HTTPProxy) handleConnect(ctx context.Context, clientConn net.Conn, req 
 	_, _, _ = tunnel.Bridge(ctx, clientConn, upConn)
 }
 
-// handleAbsoluteForm proxies non-CONNECT requests (e.g. plain HTTP) by
-// stripping hop-by-hop headers, rewriting to origin-form, and sending the
-// request to the upstream after a CONNECT to the destination's authority.
+// handleAbsoluteForm proxies one non-CONNECT (plain HTTP) request: it dials
+// the destination's authority through the upstream, sends the request in
+// origin-form with hop-by-hop headers (Proxy-Authorization included)
+// stripped, relays the response with Connection: close, then closes both
+// sides.
+//
+// One request per client connection is deliberate. A keep-alive client sends
+// its next requests on the same connection, each with Proxy-Authorization and
+// possibly for another host; raw-bridging the rest of the connection would
+// hand them unparsed to this request's origin, credentials included. Closing
+// makes the client reconnect, and handleConn parses and authenticates the
+// next request like the first.
 func (p *HTTPProxy) handleAbsoluteForm(ctx context.Context, clientConn net.Conn, req *http.Request, upstream *model.UpstreamProxy, upstreamPwd string) {
+	defer clientConn.Close()
 	if req.URL == nil || req.URL.Host == "" {
 		write400(clientConn, "absolute-form URL required")
 		return
@@ -238,29 +251,89 @@ func (p *HTTPProxy) handleAbsoluteForm(ctx context.Context, clientConn net.Conn,
 		write502(clientConn, "upstream dial failed")
 		return
 	}
+	defer upConn.Close()
+	// A hot-switch cancels ctx; closing both sockets unblocks whichever read
+	// or write the exchange is parked in.
+	stop := context.AfterFunc(ctx, func() {
+		_ = clientConn.Close()
+		_ = upConn.Close()
+	})
+	defer stop()
 
 	StripHopByHop(req.Header)
-	// Rewrite to origin form: keep path+query, drop scheme+host.
-	originForm := req.URL.RequestURI()
-	if originForm == "" {
-		originForm = "/"
+	req.Trailer = nil // a chunked body's trailers could carry Proxy-Authorization too
+	req.Close = true
+	// Request.Write emits origin-form (path+query) with Host from the URL and
+	// re-frames the body; an empty User-Agent keeps it from adding Go's own.
+	if _, ok := req.Header["User-Agent"]; !ok {
+		req.Header["User-Agent"] = []string{""}
 	}
-	if _, err := fmt.Fprintf(upConn, "%s %s HTTP/1.1\r\nHost: %s\r\n", req.Method, originForm, req.URL.Host); err != nil {
-		_ = upConn.Close()
+	if err := req.Write(upConn); err != nil {
+		write502(clientConn, "upstream write failed")
 		return
 	}
-	if err := req.Header.Write(upConn); err != nil {
-		_ = upConn.Close()
+
+	// Nothing more is read from the client, so watch it: a client that goes
+	// away while the origin is slow to answer must free the upstream now, not
+	// whenever the origin replies.
+	watchDone := make(chan struct{})
+	go func() {
+		defer close(watchDone)
+		var b [512]byte
+		for {
+			if _, err := clientConn.Read(b[:]); err != nil {
+				if !errors.Is(err, os.ErrDeadlineExceeded) {
+					_ = upConn.Close()
+				}
+				return
+			}
+		}
+	}()
+	defer func() {
+		_ = clientConn.SetReadDeadline(time.Unix(1, 0))
+		<-watchDone
+	}()
+
+	// Cap the response heads (1xx included) as a server caps request heads;
+	// ReadResponse alone would buffer a hostile origin's endless header line
+	// until piod runs out of memory.
+	head := &io.LimitedReader{R: upConn, N: http.DefaultMaxHeaderBytes}
+	upBR := bufio.NewReader(head)
+	resp, err := http.ReadResponse(upBR, req)
+	// Skip interim 1xx responses: the request body has already been sent in
+	// full, so e.g. 100 Continue carries nothing the client still needs.
+	for err == nil && resp.StatusCode < 200 {
+		resp, err = http.ReadResponse(upBR, req)
+	}
+	if err != nil {
+		write502(clientConn, "upstream response invalid")
 		return
 	}
-	if _, err := io.WriteString(upConn, "\r\n"); err != nil {
-		_ = upConn.Close()
-		return
+	head.N = math.MaxInt64 // the body streams uncapped
+	StripHopByHop(resp.Header)
+	resp.Close = true
+	bw := bufio.NewWriter(clientConn)
+	resp.Body = flushingBody{ReadCloser: resp.Body, w: bw}
+	// struct{ io.Writer } hides bw.ReadFrom, which would pass bw's own buffer
+	// to flushingBody.Read — and that Read flushes the same buffer.
+	if err := resp.Write(struct{ io.Writer }{bw}); err == nil {
+		_ = bw.Flush()
 	}
-	if req.Body != nil {
-		_, _ = io.Copy(upConn, req.Body)
+}
+
+// flushingBody flushes w before each read of the upstream response body, so
+// the response head and every body chunk reach the client without waiting
+// for w's buffer to fill (streamed responses stay streamed).
+type flushingBody struct {
+	io.ReadCloser
+	w *bufio.Writer
+}
+
+func (b flushingBody) Read(p []byte) (int, error) {
+	if err := b.w.Flush(); err != nil {
+		return 0, err
 	}
-	_, _, _ = tunnel.Bridge(ctx, clientConn, upConn)
+	return b.ReadCloser.Read(p)
 }
 
 // handleAuthError maps tunnel sentinel errors to HTTP responses.

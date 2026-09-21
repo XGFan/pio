@@ -15,7 +15,9 @@ menu-bar app and an optional cookie-protected LAN web panel.
   protocol is auto-detected per connection from the first byte (`0x05` →
   SOCKS5, otherwise HTTP). Default `127.0.0.1:8080`, bindable to `0.0.0.0`
   for LAN/remote exposure. UDP ASSOCIATE / BIND are rejected — upstreams are
-  TCP-CONNECT only.
+  TCP-CONNECT only. Plain-HTTP (non-CONNECT) requests are served one per
+  client connection (`Connection: close`), so each is parsed, authenticated
+  and routed on its own.
 - **Two ways to authenticate / route:**
   - **Per-user mapping** — each local user (username + password) is mapped to
     one upstream. The client uses those credentials; the daemon routes to the
