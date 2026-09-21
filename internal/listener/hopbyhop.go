@@ -12,6 +12,7 @@ var hopByHopHeaders = []string{
 	"Keep-Alive",
 	"Proxy-Authenticate",
 	"Proxy-Authorization",
+	"Proxy-Connection", // non-standard, but browsers and curl still send it
 	"TE",
 	"Trailer",
 	"Transfer-Encoding",
@@ -22,14 +23,15 @@ var hopByHopHeaders = []string{
 // named in the inbound Connection token list (RFC 7230 §6.1: a sender
 // may extend the hop-by-hop set by listing additional header names there).
 func StripHopByHop(h http.Header) {
-	for _, name := range hopByHopHeaders {
-		h.Del(name)
-	}
-	if conn := h.Get("Connection"); conn != "" {
+	// Read the Connection tokens before the loop below deletes Connection.
+	for _, conn := range h.Values("Connection") {
 		for tok := range strings.SplitSeq(conn, ",") {
 			if name := strings.TrimSpace(tok); name != "" {
 				h.Del(name)
 			}
 		}
+	}
+	for _, name := range hopByHopHeaders {
+		h.Del(name)
 	}
 }
